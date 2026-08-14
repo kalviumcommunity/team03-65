@@ -1,0 +1,11 @@
+user_id,content_id,watch_duration,completion_rate,pause_count,sessions_per_week,retained
+U001,C001,42,93,2,4,true
+U002,C002,18,45,5,2,false
+U003,C001,50,100,1,6,true
+U004,C003,27,68,3,3,false
+U005,C002,39,87,2,5,true
+U006,C004,12,30,6,1,false
+U007,C003,46,95,1,5,true
+U008,C005,33,74,4,3,true
+U009,C004,21,52,5,2,false
+U010,C005,55,98,0,7,true
