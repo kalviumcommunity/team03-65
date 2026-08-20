@@ -1,60 +1,111 @@
 import json
 from pathlib import Path
-
-import numpy as np
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
+# Import cleaning and analytical functions from the analysis module
+from analysis import (
+    clean_viewing_data,
+    get_data_diagnostics,
+    calculate_engagement_metrics,
+    calculate_retention_analysis,
+    segment_viewers,
+    calculate_content_performance,
+    generate_acquisition_recommendations
+)
 
-app = FastAPI()
+app = FastAPI(
+    title="Streaming Retention & Content Acquisition API",
+    description="Analytics backend correlating viewer engagement behavior to retention outcomes.",
+    version="1.0.0"
+)
+
 DATA_FILE = Path(__file__).parent / "data" / "viewing_data.csv"
-NUMERIC_RULES = {
-    "watch_duration": {"minimum": 0, "maximum": 1440, "integer": False},
-    "completion_rate": {"minimum": 0, "maximum": 100, "integer": False},
-    "pause_count": {"minimum": 0, "maximum": None, "integer": True},
-    "sessions_per_week": {"minimum": 0, "maximum": 7, "integer": True},
-}
-BOOLEAN_VALUES = {
-    "true": True,
-    "1": True,
-    "yes": True,
-    "y": True,
-    "false": False,
-    "0": False,
-    "no": False,
-    "n": False,
-}
 
+def load_raw_dataframe() -> pd.DataFrame:
+    """Helper to load the raw CSV dataset safely."""
+    if not DATA_FILE.exists():
+        raise HTTPException(status_code=404, detail="Data file viewing_data.csv not found.")
+    try:
+        return pd.read_csv(DATA_FILE)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading CSV file: {str(e)}")
 
-def clean_viewing_data(data: pd.DataFrame) -> pd.DataFrame:
-    """Return viewing data with consistent, API-safe values."""
-    cleaned = data.copy()
+def load_cleaned_dataframe() -> pd.DataFrame:
+    """Helper to load and clean the dataset."""
+    raw_df = load_raw_dataframe()
+    try:
+        return clean_viewing_data(raw_df)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning data: {str(e)}")
 
-    for column in ("user_id", "content_id"):
-        cleaned[column] = cleaned[column].astype("string").str.strip()
-        cleaned[column] = cleaned[column].replace("", pd.NA)
-    cleaned = cleaned.dropna(subset=["user_id", "content_id"])
+@app.get("/api/health")
+def get_health():
+    """Simple API health check endpoint."""
+    return {"status": "healthy", "data_file_exists": DATA_FILE.exists()}
 
-    for column, rules in NUMERIC_RULES.items():
-        values = pd.to_numeric(cleaned[column], errors="coerce")
-        values = values.replace([np.inf, -np.inf], np.nan)
-        median = values.median()
-        values = values.fillna(0 if pd.isna(median) else median)
-        values = values.clip(lower=rules["minimum"], upper=rules["maximum"])
-        cleaned[column] = values.round().astype(int) if rules["integer"] else values.round(2)
-
-    retained = (
-        cleaned["retained"].astype("string").str.strip().str.lower().map(BOOLEAN_VALUES)
-    ).astype("boolean")
-    most_common = retained.mode()
-    cleaned["retained"] = retained.fillna(
-        False if most_common.empty else most_common.iloc[0]
-    ).astype(bool)
-
-    return cleaned.drop_duplicates().reset_index(drop=True)
-
+@app.get("/api/data/summary")
+def get_data_summary():
+    """Returns diagnostics and summary details of the raw vs cleaned records."""
+    raw_df = load_raw_dataframe()
+    try:
+        diagnostics = get_data_diagnostics(raw_df)
+        return diagnostics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error computing data diagnostics: {str(e)}")
 
 @app.get("/api/viewing-data")
 def get_viewing_data():
-    cleaned = clean_viewing_data(pd.read_csv(DATA_FILE))
+    """Preserved endpoint returning the cleaned records in JSON format."""
+    cleaned = load_cleaned_dataframe()
     return json.loads(cleaned.to_json(orient="records"))
+
+@app.get("/api/analytics/engagement")
+def get_engagement_metrics():
+    """Returns overall calculated viewer engagement metrics."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        metrics = calculate_engagement_metrics(cleaned)
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating engagement metrics: {str(e)}")
+
+@app.get("/api/analytics/retention")
+def get_retention_analysis():
+    """Returns detailed comparison of engagement metrics between retained and non-retained users."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        analysis = calculate_retention_analysis(cleaned)
+        return analysis
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating retention analysis: {str(e)}")
+
+@app.get("/api/analytics/segments")
+def get_viewer_segments():
+    """Returns viewer distribution and retention rates across engagement segments."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        segments = segment_viewers(cleaned)
+        return segments
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error segmenting viewers: {str(e)}")
+
+@app.get("/api/analytics/content-performance")
+def get_content_performance():
+    """Returns aggregated engagement and retention metrics for each content item."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        performance = calculate_content_performance(cleaned)
+        return performance
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating content performance: {str(e)}")
+
+@app.get("/api/analytics/recommendations")
+def get_acquisition_recommendations():
+    """Returns evidence-backed acquisition recommendations for content items."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        recommendations = generate_acquisition_recommendations(cleaned)
+        return recommendations
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
