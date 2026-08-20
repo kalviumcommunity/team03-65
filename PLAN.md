@@ -87,9 +87,9 @@ The frontend will provide an interactive dashboard for acquisition teams to expl
 
 ## **Backend**
 
-- Python (FastAPI)
-- Pandas (for analytical processing)
-- Local CSV Storage (`data/viewing_data.csv`)
+- Node.js
+- Express.js
+- MongoDB
 
 ### **Purpose**
 
