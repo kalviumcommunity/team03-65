@@ -208,13 +208,39 @@ def generate_correlation_report(df: pd.DataFrame) -> dict:
     metric_correlations = calculate_metric_correlations(df)
     matrix_data = calculate_correlation_matrix(df)
 
-    # Key acquisition takeaway summarizing the findings
-    takeaway = (
-        "Completion rate (r = 0.8574) and weekly viewing frequency (r = 0.8371) are the strongest positive "
-        "predictors of user retention. Conversely, high pause count (r = -0.8041) is a strong negative indicator "
-        "signaling content disengagement. Content acquisition should prioritize titles with proven high completion "
-        "rates and smooth, uninterrupted consumption profiles."
-    )
+    # Key acquisition takeaway summarizing the findings (derived from computed correlations)
+    if metric_correlations:
+        pos = sorted(
+            (c for c in metric_correlations if c["correlation_coefficient"] > 0),
+            key=lambda c: c["correlation_coefficient"],
+            reverse=True,
+        )
+        neg = sorted(
+            (c for c in metric_correlations if c["correlation_coefficient"] < 0),
+            key=lambda c: c["correlation_coefficient"],
+        )
+
+        parts = []
+        if pos:
+            top_pos = pos[:2]
+            parts.append(
+                f"{top_pos[0]['metric_label']} (r = {top_pos[0]['correlation_coefficient']:.4f})"
+                + (
+                    f" and {top_pos[1]['metric_label']} (r = {top_pos[1]['correlation_coefficient']:.4f})"
+                    if len(top_pos) > 1
+                    else ""
+                )
+                + " are the strongest positive predictors of user retention."
+            )
+        if neg:
+            top_neg = neg[0]
+            parts.append(
+                f"Conversely, {top_neg['metric_label']} (r = {top_neg['correlation_coefficient']:.4f}) is a strong negative indicator signaling content disengagement."
+            )
+
+        takeaway = " ".join(parts) or "No meaningful retention correlations could be determined from the available data."
+    else:
+        takeaway = "No retention correlations could be calculated from the available data."
 
     return {
         "retention_correlations": metric_correlations,
