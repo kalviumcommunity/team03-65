@@ -11,7 +11,11 @@ from analysis import (
     calculate_retention_analysis,
     segment_viewers,
     calculate_content_performance,
-    generate_acquisition_recommendations
+    generate_acquisition_recommendations,
+    calculate_all_distributions,
+    calculate_metric_correlations,
+    calculate_correlation_matrix,
+    generate_correlation_report
 )
 
 app = FastAPI(
@@ -109,3 +113,34 @@ def get_acquisition_recommendations():
         return recommendations
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
+
+@app.get("/api/analytics/distributions")
+def get_distributions():
+    """Returns descriptive statistics, central tendency, skewness, outliers, and histogram bins."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        distributions = calculate_all_distributions(cleaned)
+        return distributions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating distributions: {str(e)}")
+
+@app.get("/api/analytics/correlation")
+def get_correlations():
+    """Returns correlation coefficients, directions, strengths, and interpretations for retention."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        report = generate_correlation_report(cleaned)
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating correlations: {str(e)}")
+
+@app.get("/api/analytics/correlation/matrix")
+def get_correlation_matrix():
+    """Returns full pairwise correlation matrix and heatmap coordinates for visualization."""
+    cleaned = load_cleaned_dataframe()
+    try:
+        matrix = calculate_correlation_matrix(cleaned)
+        return matrix
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error computing correlation matrix: {str(e)}")
+

@@ -8,3 +8,18 @@ from .metrics import (
     SEGMENTATION_THRESHOLDS,
     RECOMMENDATION_THRESHOLDS
 )
+from .distributions import (
+    calculate_metric_distribution,
+    calculate_all_distributions,
+    classify_skewness,
+    COLUMN_MAPPING
+)
+from .correlation import (
+    calculate_metric_correlations,
+    calculate_correlation_matrix,
+    generate_correlation_report,
+    classify_correlation,
+    ENGAGEMENT_METRICS,
+    METRIC_LABELS
+)
+
