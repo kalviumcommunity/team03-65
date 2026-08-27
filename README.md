@@ -125,8 +125,8 @@ Compares engagement metrics grouped by user retention status to identify correla
 
 ### **GET `/api/analytics/segments`**
 Segments viewers based on completion rate and weekly session frequency.
-*   **Highly Engaged**: Completion Rate $\ge$ 80% AND Sessions/Week $\ge$ 5
-*   **At Risk / Low Engagement**: Completion Rate $<$ 50% OR Sessions/Week $\le$ 2
+*   **Highly Engaged**: Completion Rate >= 80% AND Sessions/Week >= 5
+*   **At Risk / Low Engagement**: Completion Rate < 50% OR Sessions/Week <= 2
 *   **Moderately Engaged**: Remaining users
 **Example Response:**
 ```json
