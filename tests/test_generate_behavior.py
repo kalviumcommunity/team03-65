@@ -102,7 +102,34 @@ class TestDomainRules:
         window_end = obs + np.timedelta64(30, "D")
         started = s.loc[s["user_id"] == sample_user, "started_dt"].to_numpy()
         in_window = (started > obs) & (started <= window_end)
-        assert bool(in_window.any()) == bool(first_obs["retained_30d"])
+        eligible_expected = bool((started <= obs).any())
+        assert bool(first_obs["eligible_for_30d_retention"]) == eligible_expected
+        assert bool(first_obs["retained_30d"]) == bool(
+            in_window.any() and eligible_expected
+        )
+
+    def test_retained_implies_eligible(self, generated_sample):
+        """No row may be retained without being eligible (cohort rule)."""
+        _, _, _, retention = generated_sample
+        conflicts = retention[
+            retention["retained_30d"]
+            & ~retention["eligible_for_30d_retention"]
+        ]
+        assert conflicts.empty
+
+    def test_burn_in_month_creates_first_month_cohort(self, generated_sample):
+        """Sessions exist before the first observation date."""
+        _, _, sessions, retention = generated_sample
+        s = pd.to_datetime(sessions["started_at"])
+        first_obs = retention["observation_date"].min()
+        assert (s < pd.Timestamp(first_obs)).any()
+
+    def test_first_observation_month_has_eligible_users(self, generated_sample):
+        """Burn-in ensures the first observed cohort is not empty."""
+        _, _, _, retention = generated_sample
+        first_month = retention["observation_date"].min()
+        first_month_rows = retention[retention["observation_date"] == first_month]
+        assert first_month_rows["eligible_for_30d_retention"].any()
 
     def test_same_seed_same_output(self, generated_sample):
         catalog, _, _, _ = generated_sample

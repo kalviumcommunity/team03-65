@@ -18,7 +18,9 @@ viewer_sessions   one row per user x content session:
 viewer_retention  one row per user x observation month:
                   user_id, observation_date,
                   eligible_for_30d_retention, retained_30d
-                  (retained = any session within 30 days after observation_date)
+                  (eligible = >= 1 session on or before the observation
+                  date; retained = eligible AND any session within the
+                  30 days after the observation date)
 
 How it works (the retired Google Sheets formula spec, reimplemented in code)
 ----------------------------------------------------------------------------
@@ -34,9 +36,12 @@ deterministic per-(user, content) noise, watch duration is derived from
 completion and runtime, pauses rise as completion falls.
 
 Retention is then a genuine user-level outcome computed from the session
-records: a user is retained_30d for an observation month if they have any
-session in the following 30 days. Engagement -> retention association
-emerges from behaviour, never from per-movie formulas.
+records: a user is eligible for an observation month if they had at least
+one session on or before the observation date, and retained_30d if, being
+eligible, they have any session in the following 30 days. Engagement ->
+retention association emerges from behaviour, never from per-movie
+formulas. A burn-in month of sessions before the first observation
+ensures the first observed cohort has eligible users.
 
 Determinism: a single numpy Generator seeded from SEED drives every draw.
 Two runs with the same seed and inputs produce byte-identical outputs.
@@ -58,11 +63,15 @@ import pandas as pd
 # --- configuration constants -------------------------------------------------
 
 SEED = 42
-FORMULA_VERSION = "2.0.0-python-generator"
+FORMULA_VERSION = "2.1.0-retention-eligibility-fix"
 
 NUM_USERS = 5000
 OBSERVATION_MONTHS = 6
 OBSERVATION_START = "2026-03-01"
+# Sessions are generated from this month; the month(s) before the first
+# observation act as burn-in so the first observed cohort has eligibles.
+SESSIONS_START = "2026-02-01"
+SESSIONS_LEAD_MONTHS = 1
 
 SESSIONS_BASE_LOW = 0
 SESSIONS_BASE_HIGH = 8
@@ -181,7 +190,9 @@ def generate_sessions(
     rating_scores = priors.set_index("content_id")["rating_score"]
 
     months = pd.period_range(
-        OBSERVATION_START, periods=OBSERVATION_MONTHS, freq="M"
+        SESSIONS_START,
+        periods=SESSIONS_LEAD_MONTHS + OBSERVATION_MONTHS,
+        freq="M",
     )
 
     rows = []
@@ -269,10 +280,13 @@ def generate_retention(
 
     Semantics (documented simulation assumptions):
       eligible_for_30d_retention = the user was an active viewer on or
-      before the observation date (>= 1 session to date). Ineligible users
-      (never watched) are kept in the denominator with retained_30d=False.
+      before the observation date (>= 1 session to date, comparing
+      calendar dates). Ineligible users (never watched) are kept in the
+      denominator with retained_30d=False.
       retained_30d = the user started >= 1 session in the 30 days after
-      the observation date. A user may be retained without finishing any
+      the observation date. Only eligible users can be retained; a user
+      whose first session falls inside the window is not part of that
+      month's cohort yet. A user may be retained without finishing any
       movie: retention means returning to the platform.
 
     Args:
@@ -285,13 +299,16 @@ def generate_retention(
     """
     sessions = sessions.copy()
     sessions["started_dt"] = pd.to_datetime(sessions["started_at"])
+    # Calendar dates: a session any time on the observation date is
+    # "on or before" it (timestamps carry an hour-of-day, dates do not).
+    sessions["started_date"] = sessions["started_dt"].dt.normalize()
 
     months = pd.period_range(
         OBSERVATION_START, periods=OBSERVATION_MONTHS, freq="M"
     )
 
     session_by_user = {
-        user: group["started_dt"].sort_values().reset_index(drop=True)
+        user: group["started_date"].sort_values().reset_index(drop=True)
         for user, group in sessions.groupby("user_id")
     }
     window = np.timedelta64(30, "D")
@@ -311,10 +328,13 @@ def generate_retention(
             else:
                 started_np = started.to_numpy()
                 eligible = bool((started_np <= observation_np).any())
-                in_window = (started_np > observation_np) & (
-                    started_np <= window_end_np
-                )
-                retained = bool(in_window.any())
+                if not eligible:
+                    retained = False
+                else:
+                    in_window = (started_np > observation_np) & (
+                        started_np <= window_end_np
+                    )
+                    retained = bool(in_window.any())
 
             rows.append(
                 {
@@ -382,6 +402,12 @@ def validate_generated(
             retention["eligible_for_30d_retention"].isin([True, False]).all()
             and retention["retained_30d"].isin([True, False]).all()
         ),
+        "retained_implies_eligible": bool(
+            (
+                ~retention["retained_30d"]
+                | retention["eligible_for_30d_retention"]
+            ).all()
+        ),
     }
 
     failed = [name for name, ok in checks.items() if not ok]
@@ -438,6 +464,8 @@ def write_outputs(
             "num_users": NUM_USERS,
             "observation_months": OBSERVATION_MONTHS,
             "observation_start": OBSERVATION_START,
+            "sessions_start": SESSIONS_START,
+            "sessions_lead_months": SESSIONS_LEAD_MONTHS,
             "sessions_pareto_shape": SESSIONS_PARETO_SHAPE,
             "sessions_month_cap": SESSIONS_BASE_HIGH,
             "completion_concentration": COMPLETION_CONCENTRATION,
@@ -451,11 +479,16 @@ def write_outputs(
             "(exposure) and vote_count percentile rank (confidence proxy).",
             "They bias sampling only; they are not observed causes of",
             "retention. All behaviour data is synthetic.",
-            "retained_30d = any session within 30 days after observation",
-            "date; it is a user-level outcome derived from session records.",
+            "Sessions are generated from sessions_start, one burn-in month",
+            "before the first observation, so the first observed cohort",
+            "contains eligible users.",
+            "retained_30d = eligible user with at least one session in the",
+            "30 days after the observation date; a user whose first",
+            "session falls inside the window is not in that cohort yet.",
             "eligible_for_30d_retention = user had at least one session on",
-            "or before the observation date; never-active users remain in",
-            "the denominator with retained_30d=False.",
+            "or before the observation date (calendar-date comparison);",
+            "never-active users remain in the denominator with",
+            "retained_30d=False.",
             "Higher user engagement moderately increases completion",
             f"(coupling={ENGAGEMENT_COMPLETION_COUPLING}); the",
             "engagement-retention association is a simulation assumption.",
