@@ -18,11 +18,22 @@ python -m pip install -r requirements.txt
 
 ## Pipeline
 
+One command runs the full pipeline (catalog normalization -> seeded synthetic behaviour generation):
+
 ```bash
 python scripts/run_pipeline.py --input data/raw/tmdb_catalog.csv
 ```
 
-Stages: catalog intake & validation -> normalization -> synthetic behaviour generation (seeded) -> SQLite build -> KPI views -> dashboard-ready outputs.
+Useful flags:
+
+| Flag | Effect |
+|---|---|
+| `--seed N` | Seed for the behaviour generator (default 42, recorded in `output/reports/generation_metadata.json`) |
+| `--stages normalize,generate` | Run a subset (`all` by default, canonical order enforced) |
+| `--skip-generation` | Reuse existing generated data; normalize only |
+| `--processed-dir` / `--generated-dir` | Override output directories |
+
+Each stage logs row counts and verifies its outputs (exists, non-empty, expected columns) before the run is declared successful. The SQLite build + KPI views stage is planned and not yet wired in.
 
 Run tests:
 
