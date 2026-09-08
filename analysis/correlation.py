@@ -9,13 +9,51 @@ ENGAGEMENT_METRICS = [
     "sessions_per_week"
 ]
 
+COLUMN_ALIASES = {
+    "completion_pct": "completion_rate",
+    "watch_duration_minutes": "watch_duration",
+    "watch_duration_min": "watch_duration",
+    "retained_30d": "retained",
+    "retention": "retained",
+}
+
 METRIC_LABELS = {
     "completion_rate": "Completion Rate (%)",
     "watch_duration": "Watch Duration (mins)",
     "pause_count": "Pause Count",
     "sessions_per_week": "Sessions Per Week",
-    "retained": "User Retention (Boolean/Binary)"
+    "retained": "User Retention (Boolean/Binary)",
+    "completion_pct": "Completion Rate (%)",
+    "watch_duration_minutes": "Watch Duration (mins)",
+    "watch_duration_min": "Watch Duration (mins)",
+    "retained_30d": "User Retention (Boolean/Binary)",
+    "retention": "User Retention (Boolean/Binary)",
 }
+
+def normalize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize project column names (e.g. completion_pct -> completion_rate) and coerce types safely."""
+    if df.empty:
+        return df.copy()
+    rename_dict = {col: COLUMN_ALIASES[col] for col in df.columns if col in COLUMN_ALIASES and COLUMN_ALIASES[col] not in df.columns}
+    out_df = df.rename(columns=rename_dict).copy()
+
+    # Sanitize numeric columns (coerces strings like "unknown", "three", "N/A" to NaN)
+    for col in ["completion_rate", "watch_duration", "pause_count", "sessions_per_week"]:
+        if col in out_df.columns:
+            out_df[col] = pd.to_numeric(out_df[col], errors="coerce")
+
+    # Sanitize retained column
+    if "retained" in out_df.columns:
+        bool_map = {
+            True: 1, False: 0, 1: 1, 0: 0, "1": 1, "0": 0,
+            "true": 1, "false": 0, "yes": 1, "no": 0, "y": 1, "n": 0
+        }
+        if out_df["retained"].dtype == object or str(out_df["retained"].dtype).startswith("string"):
+            mapped = out_df["retained"].astype(str).str.strip().str.lower().map(bool_map)
+            out_df["retained"] = mapped
+        out_df["retained"] = pd.to_numeric(out_df["retained"], errors="coerce").fillna(0).astype(int)
+
+    return out_df
 
 def classify_correlation(r: float) -> tuple[str, str]:
     """Classify correlation coefficient into direction and strength."""
@@ -94,12 +132,16 @@ def generate_relationship_insight(metric: str, r: float) -> str:
 
 def calculate_metric_correlations(df: pd.DataFrame) -> list:
     """Calculate correlation between each available engagement metric and retention."""
-    if df.empty or "retained" not in df.columns:
+    if df.empty:
+        return []
+
+    clean_df = normalize_dataframe_columns(df)
+    if "retained" not in clean_df.columns:
         return []
 
     # Prepare DataFrame with retained coerced to numeric integer (1/0)
-    clean_df = df.copy()
-    clean_df["retained_numeric"] = clean_df["retained"].astype(int)
+    clean_df = clean_df.copy()
+    clean_df["retained_numeric"] = pd.to_numeric(clean_df["retained"], errors="coerce").fillna(0).astype(int)
 
     results = []
     for metric in ENGAGEMENT_METRICS:
@@ -144,12 +186,14 @@ def calculate_correlation_matrix(df: pd.DataFrame) -> dict:
             "ascii_heatmap": ""
         }
 
+    norm_df = normalize_dataframe_columns(df)
+
     # Select existing columns
-    columns = [col for col in ENGAGEMENT_METRICS if col in df.columns]
-    if "retained" in df.columns:
+    columns = [col for col in ENGAGEMENT_METRICS if col in norm_df.columns]
+    if "retained" in norm_df.columns:
         columns.append("retained")
 
-    clean_df = df[columns].copy()
+    clean_df = norm_df[columns].copy()
     if "retained" in clean_df.columns:
         clean_df["retained"] = clean_df["retained"].astype(int)
 
@@ -247,3 +291,52 @@ def generate_correlation_report(df: pd.DataFrame) -> dict:
         "correlation_matrix": matrix_data,
         "summary_takeaway": takeaway
     }
+
+def create_correlation_heatmap(matrix_data: dict):
+    """Build an interactive Plotly heatmap figure from calculate_correlation_matrix output."""
+    import plotly.graph_objects as go
+
+    if not matrix_data or not matrix_data.get("matrix"):
+        fig = go.Figure()
+        fig.update_layout(
+            title="Correlation Matrix (No Data Available)",
+            annotations=[{
+                "text": "Insufficient data to compute correlation matrix",
+                "xref": "paper",
+                "yref": "paper",
+                "showarrow": False,
+                "font": {"size": 14}
+            }]
+        )
+        return fig
+
+    labels = matrix_data.get("labels", matrix_data.get("columns", []))
+    z_values = matrix_data["matrix"]
+
+    # Text annotations for cells
+    text_values = [[f"{val:.2f}" for val in row] for row in z_values]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_values,
+        x=labels,
+        y=labels,
+        text=text_values,
+        texttemplate="%{text}",
+        textfont={"size": 12, "color": "white"},
+        colorscale="RdBu_r",
+        zmin=-1.0,
+        zmax=1.0,
+        colorbar={"title": "Pearson r"}
+    ))
+
+    fig.update_layout(
+        title="<b>Pearson Correlation Heatmap: Viewer Metrics vs Retention</b><br><span style='font-size:12px;color:#64748b'>Values closer to +1.0 indicate strong retention predictors; negative values indicate churn friction</span>",
+        xaxis={"tickangle": -25},
+        yaxis={"autorange": "reversed"},
+        template="plotly_white",
+        font_family="Inter, -apple-system, sans-serif",
+        hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_family="Inter, sans-serif", bordercolor="#e2e8f0"),
+        margin={"l": 80, "r": 50, "t": 75, "b": 90},
+        height=480
+    )
+    return fig

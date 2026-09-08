@@ -1,3 +1,5 @@
-fastapi
-pandas
-uvicorn
+streamlit>=1.32,<2
+pandas>=2.0,<3
+numpy>=1.26,<3
+plotly>=5.20,<6
+pytest>=8.0,<9
