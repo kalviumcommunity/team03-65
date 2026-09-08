@@ -123,7 +123,8 @@ st.markdown("""
     /* Hide redundant elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    header {background: transparent !important;}
+    [data-testid="stHeader"] {background: transparent !important;}
 </style>
 """, unsafe_allow_html=True)
 
