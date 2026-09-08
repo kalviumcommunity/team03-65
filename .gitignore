@@ -13,3 +13,33 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+# Local context, sources, and reference materials (never commit)
+/disst/
+
+# Data: raw sources, generated synthetic data, processed outputs, databases
+# (contents ignored; .gitkeep placeholders keep the folder structure in git)
+data/raw/*
+!data/raw/.gitkeep
+data/generated/*
+!data/generated/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.ods
+
+# Reports and regenerable outputs
+output/*
+!output/reports/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Environment / secrets
+.env
+*.key
+
+# OS artifacts
+Thumbs.db
