@@ -27,7 +27,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from analysis.cleaning import clean_viewing_data
+from analysis.cleaning import clean_viewing_data  # used by upload validation path
 from analysis.correlation import (
     calculate_correlation_matrix,
     generate_correlation_report,
@@ -72,6 +72,16 @@ st.set_page_config(
     page_icon="■",
     layout="wide",
     initial_sidebar_state="expanded"
+)
+
+# --- Synthetic Data Disclosure (required by disst/AGENTS.md sections 4/11/12) ---
+st.banner(
+    "Synthetic data notice: all viewer engagement and retention records in this "
+    "dashboard are synthetic, produced deterministically by the seeded behavior "
+    "generator. The catalog dimension is real TMDB movie metadata. Insights "
+    "describe associations under the simulation assumptions — not real viewer "
+    "behaviour or causal effects.",
+    icon="⚠️",
 )
 
 # Senior Designer Custom CSS (Linear / Stripe / Vercel Aesthetic)
@@ -131,27 +141,51 @@ st.markdown("""
 # --- Data Loading Helper ---
 @st.cache_data
 def load_default_dataset() -> pd.DataFrame:
-    """Load default dataset from project directory with automatic cleaning."""
-    candidate_paths = [
-        REPO_ROOT / "data" / "generated" / "viewer_sessions.csv",
-        REPO_ROOT / "data" / "viewing_data.csv"
-    ]
-    for p in candidate_paths:
-        if p.exists() and p.stat().st_size > 0:
-            raw_df = pd.read_csv(p)
-            if "viewing_data.csv" in str(p):
-                clean_df = clean_viewing_data(raw_df)
-                return normalize_dataframe_columns(clean_df)
-            else:
-                df = raw_df.copy()
-                if "retained" not in df.columns and "retained_30d" not in df.columns:
-                    ret_path = REPO_ROOT / "data" / "generated" / "viewer_retention.csv"
-                    if ret_path.exists():
-                        ret_df = pd.read_csv(ret_path)
-                        latest_ret = ret_df.groupby("user_id")["retained_30d"].last().reset_index()
-                        df = df.merge(latest_ret, on="user_id", how="left")
-                return normalize_dataframe_columns(df)
-    return pd.DataFrame()
+    """Load the synthetic session dataset, derive engagement metrics from
+    session records, and attach the latest *eligible* 30-day retention
+    outcome per user (user-level grain, per disst/AGENTS.md sections 8/11)."""
+    sessions_path = REPO_ROOT / "data" / "generated" / "viewer_sessions.csv"
+    if not sessions_path.exists() or sessions_path.stat().st_size == 0:
+        return pd.DataFrame()
+
+    df = pd.read_csv(sessions_path)
+
+    # sessions_per_week must be derived from session records, never defaulted.
+    # Use mean sessions per *active* ISO week (viewing frequency while active),
+    # which is the behaviour the segmentation thresholds describe.
+    if "started_at" in df.columns:
+        started = pd.to_datetime(df["started_at"], errors="coerce")
+        df["started_at"] = started
+        valid = df.dropna(subset=["started_at"])
+        if not valid.empty:
+            weekly = (
+                valid.assign(week=valid["started_at"].dt.to_period("W"))
+                .groupby(["user_id", "week"]).size()
+                .reset_index(name="sessions_in_week")
+            )
+            per_user = weekly.groupby("user_id")["sessions_in_week"].mean().reset_index()
+            per_user = per_user.rename(columns={"sessions_in_week": "sessions_per_week"})
+            df = df.merge(per_user, on="user_id", how="left")
+
+    # retention: user-level outcome; only *eligible* observations may define it
+    if "retained" not in df.columns and "retained_30d" not in df.columns:
+        ret_path = REPO_ROOT / "data" / "generated" / "viewer_retention.csv"
+        if ret_path.exists():
+            ret_df = pd.read_csv(ret_path)
+            if "eligible_for_30d_retention" in ret_df.columns:
+                ret_df = ret_df[
+                    ret_df["eligible_for_30d_retention"].astype(str).str.lower().isin(["true", "1"])
+                ]
+            if not ret_df.empty:
+                latest_ret = (
+                    ret_df.sort_values("observation_date")
+                    .groupby("user_id")["retained_30d"]
+                    .last()
+                    .reset_index()
+                )
+                df = df.merge(latest_ret, on="user_id", how="left")
+
+    return normalize_dataframe_columns(df)
 
 # --- Sidebar Architecture ---
 with st.sidebar:
@@ -348,7 +382,8 @@ render_problem_statement_navigator(filtered_df)
     tab_funnel,
     tab_acquisition,
     tab_simulator,
-    tab_sql_audit
+    tab_sql_audit,
+    tab_assumptions
 ) = st.tabs([
     "Executive Cockpit",
     "Engagement Drivers",
@@ -356,7 +391,8 @@ render_problem_statement_navigator(filtered_df)
     "Funnel Analysis",
     "Content Portfolio",
     "What-If Model",
-    "SQL Parity"
+    "SQL Parity",
+    "Data Quality & Assumptions"
 ])
 
 # =============================================================================
@@ -711,3 +747,50 @@ with tab_simulator:
 # =============================================================================
 with tab_sql_audit:
     render_sql_audit_workbench(filtered_df)
+
+# =============================================================================
+# TAB 8: DATA QUALITY & ASSUMPTIONS (synthetic disclosure, data dictionary,
+# KPI formulas — required by disst/AGENTS.md sections 11/12)
+# =============================================================================
+with tab_assumptions:
+    st.subheader("Data Quality, Assumptions & Limitations")
+    st.markdown(
+        """
+#### Data provenance
+
+- **Content catalog** — real TMDB movie metadata (~50k titles). Catalog fields
+  (`vote_average`, `popularity`, `runtime`, `genres`) are priors for the
+  simulation only; they are **not** observed causes of viewer behaviour.
+- **Viewer sessions & retention** — fully **synthetic**, produced by the seeded
+  deterministic generator (`scripts/generate_behavior.py`, default seed 42,
+  formula v2.1.0). Outputs are reproducible from the recorded seed and
+  parameters in `output/reports/generation_metadata.json`.
+
+#### Analytical definitions
+
+| Metric | Formula | Notes |
+|---|---|---|
+| `finished` | `completion_pct >= 90` | Completion bounded 0–100 |
+| Sessions per week | user session count ÷ weeks in observation span | Derived from session records — never typed per row |
+| 30-day retention | user has a session within 30 days of `observation_date` | User-level outcome; computed only for eligible users |
+| Eligibility | user has activity in the 30 days **before** the observation date | Non-eligible rows are excluded from retention denominators |
+
+#### Limitations
+
+- All engagement–retention relationships are **synthetic associations under
+  the simulation assumptions**, not measurements of real viewers.
+- Correlations shown anywhere in this dashboard are associations — never
+  causal claims.
+- Small-denominator content metrics (few eligible viewers per title) are
+  statistically weak; interpret content-level rates with the viewer counts
+  alongside.
+- Recommendations are decision-support outputs only; final acquisition
+  decisions remain with human stakeholders.
+
+#### Reproducibility
+
+Rebuild the full dataset with a single command from the repo root
+(see README): `python scripts/run_pipeline.py`. Two runs from the same seed
+and inputs produce identical outputs.
+        """
+    )
