@@ -55,6 +55,43 @@ def normalize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     return out_df
 
+def to_user_level(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse a normalized session-grain DataFrame to one row per user.
+
+    Retention is a user-level outcome (AGENTS context section 8): computing it
+    at session grain over-weights heavy viewers. Engagement metrics become
+    per-user means, sessions_per_week keeps the per-user derived value, and
+    `retained` keeps the user's (latest) outcome. Frames without `user_id`
+    are returned unchanged — one row is already presumed one viewer.
+    """
+    if df.empty or "user_id" not in df.columns:
+        return df.copy()
+
+    agg_map = {}
+    for col in ["completion_rate", "watch_duration", "pause_count"]:
+        if col in df.columns:
+            agg_map[col] = (col, "mean")
+    if "sessions_per_week" in df.columns:
+        agg_map["sessions_per_week"] = ("sessions_per_week", "first")
+    if "retained" in df.columns:
+        agg_map["retained"] = ("retained", "max")
+    if "finished" in df.columns:
+        agg_map["finished"] = ("finished", "max")
+    if not agg_map:
+        return df.drop_duplicates(subset=["user_id"]).copy()
+
+    user_df = df.groupby("user_id", as_index=False).agg(**agg_map)
+    if "content_id" in df.columns:
+        # representative content affiliation (first) + distinct title count
+        user_df = user_df.merge(
+            df.groupby("user_id", as_index=False)
+              .agg(representative_content_id=("content_id", "first"),
+                   distinct_titles=("content_id", "nunique")),
+            on="user_id", how="left"
+        )
+        user_df = user_df.rename(columns={"representative_content_id": "content_id"})
+    return user_df
+
 def classify_correlation(r: float) -> tuple[str, str]:
     """Classify correlation coefficient into direction and strength."""
     if pd.isna(r):

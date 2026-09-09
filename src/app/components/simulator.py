@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import Dict, Any
 
-from analysis.correlation import calculate_correlation_matrix
+from analysis.correlation import calculate_correlation_matrix, to_user_level
 from analysis.kpis import calculate_kpis
 from src.app.components.html_utils import clean_html
 
@@ -25,20 +25,25 @@ def render_what_if_simulator(df: pd.DataFrame) -> None:
         st.info("Insufficient telemetry data to run sensitivity model.")
         return
 
+    # User-level grain: one row per viewer for retention math (AGENTS context
+    # section 8); a viewer with many sessions must not count multiple times.
+    user_df = to_user_level(df)
+
     # Baseline calculations
-    total_viewers = len(df)
-    baseline_retention = float(df["retained"].mean())
-    avg_comp = float(df["completion_rate"].mean()) if "completion_rate" in df.columns else 60.0
-    avg_pause = float(df["pause_count"].mean()) if "pause_count" in df.columns else 3.5
+    total_viewers = len(user_df)
+    retained_defined = pd.to_numeric(user_df["retained"], errors="coerce").dropna()
+    baseline_retention = float(retained_defined.mean()) if len(retained_defined) > 0 else 0.0
+    avg_comp = float(user_df["completion_rate"].mean()) if "completion_rate" in user_df.columns else 60.0
+    avg_pause = float(user_df["pause_count"].mean()) if "pause_count" in user_df.columns else 3.5
 
     # Sensitivity slopes via correlation
-    corr_data = calculate_correlation_matrix(df)
+    corr_data = calculate_correlation_matrix(user_df)
     r_comp = corr_data.get("completion_rate", {}).get("retained", 0.85) if isinstance(corr_data, dict) else 0.85
     r_pause = abs(corr_data.get("pause_count", {}).get("retained", -0.85)) if isinstance(corr_data, dict) else 0.85
 
-    std_ret = float(df["retained"].std()) if float(df["retained"].std()) > 0 else 0.25
-    std_comp = float(df["completion_rate"].std()) if "completion_rate" in df.columns and float(df["completion_rate"].std()) > 0 else 20.0
-    std_pause = float(df["pause_count"].std()) if "pause_count" in df.columns and float(df["pause_count"].std()) > 0 else 2.0
+    std_ret = float(user_df["retained"].std()) if float(user_df["retained"].std()) > 0 else 0.25
+    std_comp = float(user_df["completion_rate"].std()) if "completion_rate" in user_df.columns and float(user_df["completion_rate"].std()) > 0 else 20.0
+    std_pause = float(user_df["pause_count"].std()) if "pause_count" in user_df.columns and float(user_df["pause_count"].std()) > 0 else 2.0
 
     col_sim_left, col_sim_right = st.columns([1, 2])
 

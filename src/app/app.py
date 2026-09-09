@@ -58,6 +58,7 @@ from analysis.recommendations import (
     calculate_content_performance_summary
 )
 from analysis.alerts import evaluate_kpi_alerts
+from analysis.correlation import to_user_level
 from src.app.components.html_utils import clean_html
 from src.app.components.kpi_cards import render_kpi_cards
 from src.app.components.alerts import render_alert_banners
@@ -75,13 +76,12 @@ st.set_page_config(
 )
 
 # --- Synthetic Data Disclosure (required by disst/AGENTS.md sections 4/11/12) ---
-st.banner(
+st.warning(
     "Synthetic data notice: all viewer engagement and retention records in this "
     "dashboard are synthetic, produced deterministically by the seeded behavior "
     "generator. The catalog dimension is real TMDB movie metadata. Insights "
     "describe associations under the simulation assumptions — not real viewer "
-    "behaviour or causal effects.",
-    icon="⚠️",
+    "behaviour or causal effects."
 )
 
 # Senior Designer Custom CSS (Linear / Stripe / Vercel Aesthetic)
@@ -139,6 +139,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Data Loading Helper ---
+def _user_level_retention(df: pd.DataFrame) -> float:
+    """Retention is a user-level outcome: one row per user, only defined
+    (eligible) outcomes in the denominator (AGENTS context section 8)."""
+    if df.empty or "retained" not in df.columns:
+        return 0.0
+    user_ret = to_user_level(df)
+    ret = pd.to_numeric(user_ret["retained"], errors="coerce").dropna()
+    return float(ret.mean()) if len(ret) > 0 else 0.0
+
 @st.cache_data
 def load_default_dataset() -> pd.DataFrame:
     """Load the synthetic session dataset, derive engagement metrics from
@@ -228,7 +237,7 @@ with st.sidebar:
     filtered_df = active_df.copy()
 
     if not active_df.empty:
-        quick_ret_val = float(active_df["retained"].mean()) if "retained" in active_df.columns else 0.50
+        quick_ret_val = _user_level_retention(active_df) if "retained" in active_df.columns else 0.50
         titles_count = int(active_df["content_id"].nunique()) if "content_id" in active_df.columns else 1
         
         st.markdown(
@@ -352,7 +361,7 @@ with hero_col1:
 
 with hero_col2:
     if not filtered_df.empty:
-        quick_ret = float(filtered_df["retained"].mean()) if "retained" in filtered_df.columns else 0.0
+        quick_ret = _user_level_retention(filtered_df) if "retained" in filtered_df.columns else 0.0
         titles_count = int(filtered_df["content_id"].nunique()) if "content_id" in filtered_df.columns else 1
         st.markdown(
             clean_html(f"""
@@ -773,7 +782,7 @@ with tab_assumptions:
 | `finished` | `completion_pct >= 90` | Completion bounded 0–100 |
 | Sessions per week | user session count ÷ weeks in observation span | Derived from session records — never typed per row |
 | 30-day retention | user has a session within 30 days of `observation_date` | User-level outcome; computed only for eligible users |
-| Eligibility | user has activity in the 30 days **before** the observation date | Non-eligible rows are excluded from retention denominators |
+| Eligibility | user has activity in the 30 days **before** the observation date | Users with sessions but no eligible observation (~0.3% of the current dataset) are conservatively counted as not retained |
 
 #### Limitations
 

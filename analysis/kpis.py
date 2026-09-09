@@ -20,7 +20,7 @@ from typing import Dict, Any, Optional
 import pandas as pd
 import numpy as np
 
-from analysis.correlation import normalize_dataframe_columns
+from analysis.correlation import normalize_dataframe_columns, to_user_level
 
 KPI_METADATA = {
     "overall_retention_rate": {
@@ -80,16 +80,21 @@ def calculate_kpis(df: pd.DataFrame, previous_df: Optional[pd.DataFrame] = None)
             "retained_viewers": 0
         }
 
-    norm_df = normalize_dataframe_columns(df).copy()
+    norm_df = normalize_dataframe_columns(df)
+
+    # Retention is a user-level outcome: collapse session grain to one row per
+    # user before computing retention/viewer KPIs (AGENTS context section 8).
+    user_df = to_user_level(norm_df)
 
     # Sanitize required columns
-    total_viewers = len(norm_df)
+    total_viewers = len(user_df)
 
-    # 1. Overall Retention Rate
-    if "retained" in norm_df.columns:
-        ret_series = pd.to_numeric(norm_df["retained"], errors="coerce").fillna(0).astype(int)
-        retained_viewers = int(ret_series.sum())
-        retention_rate = float(retained_viewers / total_viewers) if total_viewers > 0 else 0.0
+    # 1. Overall Retention Rate (eligible users with a defined outcome; NaN = no eligible observation)
+    if "retained" in user_df.columns:
+        ret_series = pd.to_numeric(user_df["retained"], errors="coerce")
+        defined = ret_series.dropna()
+        retained_viewers = int(defined.sum())
+        retention_rate = float(retained_viewers / len(defined)) if len(defined) > 0 else 0.0
     else:
         retained_viewers = 0
         retention_rate = 0.0
@@ -115,13 +120,14 @@ def calculate_kpis(df: pd.DataFrame, previous_df: Optional[pd.DataFrame] = None)
     else:
         avg_pauses = 0.0
 
-    # 5. Content Completion Rate (sessions where >= 90% or finished)
-    if "finished" in norm_df.columns:
-        finished_series = norm_df["finished"].astype(bool)
+    # 5. Content Completion Rate (users who finished >= 1 session, or sessions >= 90% when user grain unknown)
+    if "finished" in user_df.columns:
+        finished_series = user_df["finished"].astype(bool)
         content_comp_rate = float(finished_series.mean()) if not finished_series.empty else 0.0
-    elif "completion_rate" in norm_df.columns:
-        finished_series = norm_df["completion_rate"] >= 90.0
-        content_comp_rate = float(finished_series.mean()) if not finished_series.empty else 0.0
+    elif "finished" in norm_df.columns:
+        content_comp_rate = float(norm_df["finished"].astype(bool).mean()) if len(norm_df) > 0 else 0.0
+    elif "completion_rate" in user_df.columns:
+        content_comp_rate = float((user_df["completion_rate"] >= 90.0).mean()) if len(user_df) > 0 else 0.0
     else:
         content_comp_rate = 0.0
 
