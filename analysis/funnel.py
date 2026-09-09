@@ -77,7 +77,21 @@ def calculate_funnel_metrics(df: pd.DataFrame) -> dict:
             "bottleneck_narrative": "No session or retention data available to evaluate viewer funnel drop-off."
         }
 
-    norm_df = normalize_dataframe_columns(df).copy()
+    norm_df = normalize_dataframe_columns(df)
+
+    # Funnel stages describe viewer progression, so a user's furthest
+    # completion (MAX) determines the stage they reached; retention is
+    # user-level. Collapse to one row per user (AGENTS context section 8/11).
+    if not norm_df.empty and "user_id" in norm_df.columns:
+        agg_map = {}
+        if "completion_rate" in norm_df.columns:
+            agg_map["completion_rate"] = ("completion_rate", "max")
+        if "finished" in norm_df.columns:
+            agg_map["finished"] = ("finished", "max")
+        if "retained" in norm_df.columns:
+            agg_map["retained"] = ("retained", "max")
+        if agg_map:
+            norm_df = norm_df.groupby("user_id", as_index=False).agg(**agg_map)
 
     # Ensure completion_rate and retained columns exist and are numeric
     if "completion_rate" not in norm_df.columns:
@@ -112,7 +126,7 @@ def calculate_funnel_metrics(df: pd.DataFrame) -> dict:
     else:
         count_finished = int(len(norm_df[norm_df["completion_rate"] >= 90.0]))
 
-    # Stage 6: Retained
+    # Stage 6: Retained (distinct users; NaN outcomes already zeroed above)
     count_retained = int(len(norm_df[norm_df["retained_numeric"] == 1]))
 
     stage_counts = [

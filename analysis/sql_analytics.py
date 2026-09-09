@@ -90,22 +90,23 @@ def query_content_highest_retention(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query(sql, conn)
 
 def query_segment_summaries(conn: sqlite3.Connection) -> pd.DataFrame:
-    """Query viewer segment summaries using SQL CTE."""
+    """Query viewer segment summaries using SQL CTE (user-level grain)."""
     sql = """
     WITH classified_viewers AS (
         SELECT
             user_id,
-            completion_rate,
-            watch_duration,
-            pause_count,
-            sessions_per_week,
-            retained,
+            AVG(completion_rate) AS completion_rate,
+            AVG(watch_duration) AS watch_duration,
+            AVG(pause_count) AS pause_count,
+            MIN(sessions_per_week) AS sessions_per_week,
+            MAX(retained) AS retained,
             CASE
-                WHEN completion_rate >= 80.0 AND sessions_per_week >= 5 THEN 'Highly Engaged'
-                WHEN completion_rate < 50.0 OR sessions_per_week <= 2 THEN 'At Risk / Low Engagement'
+                WHEN AVG(completion_rate) >= 80.0 AND MIN(sessions_per_week) >= 5 THEN 'Highly Engaged'
+                WHEN AVG(completion_rate) < 50.0 OR MIN(sessions_per_week) <= 2 THEN 'At Risk / Low Engagement'
                 ELSE 'Moderately Engaged'
             END AS segment
         FROM viewing_records
+        GROUP BY user_id
     ),
     total_count AS (
         SELECT COUNT(*) AS total FROM classified_viewers
@@ -128,12 +129,34 @@ def query_segment_summaries(conn: sqlite3.Connection) -> pd.DataFrame:
             ELSE 3
         END;
     """
-    return pd.read_sql_query(sql, conn)
+    df = pd.read_sql_query(sql, conn)
+    # emit zero rows for expected segments with no members (parity with Python)
+    expected = ["Highly Engaged", "Moderately Engaged", "At Risk / Low Engagement"]
+    missing = [s for s in expected if s not in set(df["segment"]) if not df.empty] if not df.empty else expected
+    if missing:
+        zero_rows = pd.DataFrame([{
+            "segment": s, "viewer_count": 0, "viewer_pct": 0.0,
+            "avg_completion_rate": 0.0, "avg_watch_duration": 0.0,
+            "avg_pause_count": 0.0, "avg_sessions_per_week": 0.0, "retention_rate": 0.0
+        } for s in missing])
+        df = pd.concat([df, zero_rows], ignore_index=True)
+        df["_ord"] = df["segment"].map({s: i for i, s in enumerate(expected)})
+        df = df.sort_values("_ord").drop(columns="_ord").reset_index(drop=True)
+    return df
 
 def query_funnel_steps(conn: sqlite3.Connection) -> pd.DataFrame:
-    """Query funnel steps from SQLite."""
+    """Query funnel steps from SQLite (user-level grain)."""
     sql = """
-    WITH stage_counts AS (
+    WITH per_user AS (
+        SELECT
+            user_id,
+            MAX(completion_rate) AS completion_rate,
+            MAX(CASE WHEN finished = 1 THEN 1 ELSE 0 END) AS finished,
+            MAX(retained) AS retained
+        FROM viewing_records
+        GROUP BY user_id
+    ),
+    stage_counts AS (
         SELECT
             COUNT(*) AS total_records,
             SUM(CASE WHEN completion_rate > 0 THEN 1 ELSE 0 END) AS started_count,
@@ -142,7 +165,7 @@ def query_funnel_steps(conn: sqlite3.Connection) -> pd.DataFrame:
             SUM(CASE WHEN completion_rate >= 75.0 THEN 1 ELSE 0 END) AS watched_75_count,
             SUM(CASE WHEN completion_rate >= 90.0 OR finished = 1 THEN 1 ELSE 0 END) AS finished_count,
             SUM(CASE WHEN retained = 1 THEN 1 ELSE 0 END) AS retained_count
-        FROM viewing_records
+        FROM per_user
     )
     SELECT 'Started' AS stage, started_count AS count, 100.0 AS pct_of_initial FROM stage_counts
     UNION ALL

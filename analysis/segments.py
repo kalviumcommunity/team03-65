@@ -13,7 +13,7 @@ from typing import Dict, List, Any, Optional
 import pandas as pd
 import numpy as np
 
-from analysis.correlation import normalize_dataframe_columns
+from analysis.correlation import normalize_dataframe_columns, to_user_level
 
 # Source of truth segment thresholds
 SEGMENTATION_THRESHOLDS = {
@@ -58,13 +58,18 @@ def classify_viewer_4_segments(completion_rate: float, sessions_per_week: float)
         return "Low / At-Risk"
 
 def assign_segments(df: pd.DataFrame, use_4_segments: bool = False) -> pd.DataFrame:
-    """Assign segment label to each viewer record in dataframe."""
+    """Assign segment label to each viewer record in dataframe.
+
+    Classification runs on user-level rows when `user_id` is present, so one
+    viewer is counted once regardless of session count (retention and segment
+    sizes are user-grain per AGENTS context section 8).
+    """
     if df.empty:
         df_out = df.copy()
         df_out["segment"] = pd.Series(dtype=str)
         return df_out
 
-    norm_df = normalize_dataframe_columns(df).copy()
+    norm_df = to_user_level(normalize_dataframe_columns(df))
 
     # Fill defaults for required classification columns if missing
     if "completion_rate" not in norm_df.columns:
@@ -121,6 +126,7 @@ def calculate_segment_comparison(df: pd.DataFrame, use_4_segments: bool = False)
 
     records = []
     groups = segmented_df.groupby("segment")
+    total_viewers = len(segmented_df)
 
     for seg in expected_segments:
         if seg in groups.groups:
@@ -131,7 +137,11 @@ def calculate_segment_comparison(df: pd.DataFrame, use_4_segments: bool = False)
             avg_dur = round(float(group["watch_duration"].mean()), 2)
             avg_pauses = round(float(group["pause_count"].mean()), 2)
             avg_sess = round(float(group["sessions_per_week"].mean()), 2)
-            ret_rate = round(float(group["retained_numeric"].mean()), 4)
+            if "retained" in group.columns:
+                ret_defined = pd.to_numeric(group["retained"], errors="coerce").dropna()
+                ret_rate = round(float(ret_defined.mean()), 4) if len(ret_defined) > 0 else 0.0
+            else:
+                ret_rate = 0.0
         else:
             count = 0
             pct = 0.0

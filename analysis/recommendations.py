@@ -131,17 +131,27 @@ def calculate_content_performance_summary(df: pd.DataFrame) -> pd.DataFrame:
             norm_df[field] = 0.0
 
     if "retained" in norm_df.columns:
-        norm_df["retained_numeric"] = pd.to_numeric(norm_df["retained"], errors="coerce").fillna(0).astype(int)
+        norm_df["retained_numeric"] = pd.to_numeric(norm_df["retained"], errors="coerce")
     else:
-        norm_df["retained_numeric"] = 0
+        norm_df["retained_numeric"] = np.nan
 
-    agg_df = norm_df.groupby("content_id").agg(
-        viewer_count=("user_id" if "user_id" in norm_df.columns else "content_id", "count"),
+    # Viewer count = distinct users (not session rows); retention uses only
+    # rows with a defined (eligible) user-level outcome.
+    user_col = "user_id" if "user_id" in norm_df.columns else None
+
+    def _rate(x: pd.Series) -> float:
+        defined = x.dropna()
+        return float(defined.mean()) if len(defined) > 0 else 0.0
+
+    group_key = "content_id"
+    base_agg = norm_df.groupby(group_key)
+    agg_df = base_agg.agg(
+        viewer_count=(("user_id" if user_col else "content_id"), "nunique" if user_col else "count"),
         avg_completion_rate=("completion_rate", "mean"),
         avg_watch_duration=("watch_duration", "mean"),
         avg_pause_count=("pause_count", "mean"),
         avg_sessions_per_week=("sessions_per_week", "mean"),
-        retention_rate=("retained_numeric", "mean")
+        retention_rate=("retained_numeric", _rate)
     ).reset_index()
 
     agg_df["avg_completion_rate"] = agg_df["avg_completion_rate"].round(2)

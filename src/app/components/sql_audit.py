@@ -68,9 +68,9 @@ def render_sql_audit_workbench(df: pd.DataFrame) -> None:
 
     with tab_q1:
         st.markdown("#### Content Retention Grouped Aggregation")
-        st.caption("Aggregates viewer count, completion rate, duration, pauses, and retention rate grouped by title.")
+        st.caption("Aggregates distinct viewers, completion rate, duration, pauses, and retention rate grouped by title (user-level outcomes).")
 
-        sql_code_1 = """SELECT 
+        sql_code_1 = """SELECT
     content_id,
     COUNT(DISTINCT user_id) AS viewer_count,
     ROUND(AVG(completion_rate), 2) AS avg_completion_rate,
@@ -95,17 +95,18 @@ ORDER BY retention_rate DESC, viewer_count DESC;"""
         sql_code_2 = """WITH classified_viewers AS (
     SELECT
         user_id,
-        completion_rate,
-        watch_duration,
-        pause_count,
-        sessions_per_week,
-        retained,
+        AVG(completion_rate) AS completion_rate,
+        AVG(watch_duration) AS watch_duration,
+        AVG(pause_count) AS pause_count,
+        MIN(sessions_per_week) AS sessions_per_week,
+        MAX(retained) AS retained,
         CASE
-            WHEN completion_rate >= 80.0 AND sessions_per_week >= 5 THEN 'Highly Engaged'
-            WHEN completion_rate < 50.0 OR sessions_per_week <= 2 THEN 'At Risk / Low Engagement'
+            WHEN AVG(completion_rate) >= 80.0 AND MIN(sessions_per_week) >= 5 THEN 'Highly Engaged'
+            WHEN AVG(completion_rate) < 50.0 OR MIN(sessions_per_week) <= 2 THEN 'At Risk / Low Engagement'
             ELSE 'Moderately Engaged'
         END AS segment
     FROM viewing_records
+    GROUP BY user_id
 ),
 total_count AS (
     SELECT COUNT(*) AS total FROM classified_viewers
@@ -132,7 +133,16 @@ GROUP BY c.segment;"""
         st.markdown("#### Lifecycle Funnel Milestone Conversion")
         st.caption("Calculates milestone stage counts and conversion percentages using SQL UNION ALL.")
 
-        sql_code_3 = """WITH stage_counts AS (
+        sql_code_3 = """WITH per_user AS (
+    SELECT
+        user_id,
+        MAX(completion_rate) AS completion_rate,
+        MAX(CASE WHEN finished = 1 THEN 1 ELSE 0 END) AS finished,
+        MAX(retained) AS retained
+    FROM viewing_records
+    GROUP BY user_id
+),
+stage_counts AS (
     SELECT
         COUNT(*) AS total_records,
         SUM(CASE WHEN completion_rate > 0 THEN 1 ELSE 0 END) AS started_count,
@@ -141,7 +151,7 @@ GROUP BY c.segment;"""
         SUM(CASE WHEN completion_rate >= 75.0 THEN 1 ELSE 0 END) AS watched_75_count,
         SUM(CASE WHEN finished = 1 OR completion_rate >= 90.0 THEN 1 ELSE 0 END) AS finished_count,
         SUM(CASE WHEN retained = 1 THEN 1 ELSE 0 END) AS retained_count
-    FROM viewing_records
+    FROM per_user
 )
 SELECT 'Started' AS stage, started_count AS count, 100.0 AS percentage_of_total FROM stage_counts
 UNION ALL
