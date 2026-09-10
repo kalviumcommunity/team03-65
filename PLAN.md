@@ -64,17 +64,16 @@ Acquisition Recommendations
 
 # **3. Proposed Tech Stack**
 
-## **Frontend**
+> **Revised 2026-09-02 (supersedes the original React/FastAPI plan; see also PRD.md).** The learning units mandate Streamlit; the full-stack React/Node idea was dropped. PLAN/PRD references to React, Vite, FastAPI, Express, and MongoDB are historical.
 
-- React.js
-- Vite
-- Tailwind CSS
-- Recharts / Chart.js
-- Axios
+## Frontend
+
+- **Streamlit** (Python) — `src/app/app.py` + `src/app/components/`
+- Plotly (interactive charts, funnels, heatmaps)
 
 ### **Purpose**
 
-The frontend will provide an interactive dashboard for acquisition teams to explore:
+The dashboard provides an interactive decision-support interface for acquisition teams to explore:
 
 - Retention metrics
 - Engagement patterns
@@ -85,44 +84,31 @@ The frontend will provide an interactive dashboard for acquisition teams to expl
 
 ---
 
-## **Backend**
+## Backend
 
-- Python (FastAPI)
-- Pandas (for analytical processing)
-- Local CSV Storage (`data/viewing_data.csv`)
+- Python scripts (single-command pipeline: `scripts/run_pipeline.py`)
+- Pandas / NumPy (analytical processing)
+- SQLite (relational store; KPI views planned)
 
 ### **Purpose**
 
-The backend will provide REST APIs for:
+The pipeline reproduces every output from the raw catalog:
 
-- Viewer data
-- Content data
-- Engagement metrics
-- Retention statistics
-- Analysis results
-- Recommendations
+```
+raw catalog -> normalize_catalog.py -> generate_behavior.py (seeded, synthetic)
+            -> [planned: build_db.py — SQLite tables + KPI views]
+            -> Streamlit dashboard
+```
 
 ---
 
-## **Data Analysis / Machine Learning**
+## Data Analysis
 
 - Python
 - Pandas
 - NumPy
-- Matplotlib / Seaborn
-- Scikit-learn
-
-### **Purpose**
-
-Python will be used for:
-
-- Data cleaning
-- Exploratory data analysis
-- Feature engineering
-- Correlation analysis
-- Viewer segmentation
-- Retention prediction
-- Model evaluation
+- Plotly
+- Catalog priors bias the seeded synthetic generator; correlations are associations, never causal claims
 
 ---
 
@@ -148,16 +134,16 @@ Python will be used for:
 Tasks:
 
 - Identify required datasets
-- Define data fields
-- Collect/create sample streaming data
-- Handle missing values
+- Define data fields (hybrid grain: real TMDB catalog as dimension table + seeded synthetic user-level sessions and retention tables)
+- Generate the deterministic synthetic behaviour dataset (seed 42, metadata in `output/reports/generation_metadata.json`)
+- Handle missing/invalid records via isolated validation reports (never silently dropped)
 - Remove duplicate records
 - Detect outliers
 - Normalize/transform required fields
 
 ### **Expected Output**
 
-A clean and structured dataset ready for analysis.
+A clean and structured dataset ready for analysis (`data/processed/` + `data/generated/`, gitignored, reproducible via `python scripts/run_pipeline.py`).
 
 ---
 
@@ -184,15 +170,14 @@ Create meaningful engagement metrics such as:
 
 - Average watch duration
 - Completion rate
-- Average pauses per episode
-- Episodes watched per session
-- Weekly viewing frequency
+- Average pauses per session
+- Sessions per week (derived from session records, never typed per row)
 - Average session duration
-- Engagement score
+- Finished flag (completion >= 90%)
 
 ### **Expected Output**
 
-A feature set that can be used for retention analysis and prediction.
+A user-level feature set for retention analysis (engagement metrics aggregated per viewer; retention is a user-level outcome).
 
 ---
 
@@ -200,15 +185,14 @@ A feature set that can be used for retention analysis and prediction.
 
 Group viewers according to their engagement behavior.
 
-Possible segments:
+Implemented segments (3-segment default, 4-segment PRD mode via dashboard toggle):
 
-- Highly Engaged
-- Regular Viewers
+- Highly Engaged (completion >= 80% AND sessions/week >= 5)
+- Moderately Engaged / Steady Viewers
 - Casual Viewers
-- At-Risk Viewers
-- Low Engagement Viewers
+- At-Risk / Low Engagement (completion < 50% OR sessions/week <= 2)
 
-Clustering techniques such as K-Means may be explored if appropriate.
+Thresholds are documented in `analysis/segments.py`; recalibration may be explored if the generator's frequency distribution makes a tier empty.
 
 ### **Expected Output**
 
@@ -216,18 +200,18 @@ Meaningful viewer segments and their corresponding retention patterns.
 
 ---
 
-## **Module 5 — Retention Analysis / Prediction**
+## **Module 5 — Retention Analysis**
 
 Investigate which engagement features have the strongest relationship with retention.
 
-Possible approaches:
+Approach (as built):
 
-- Correlation analysis
-- Logistic Regression
-- Decision Tree
-- Random Forest
+- Retained vs churned cohort comparison (user-level)
+- Correlation analysis (Pearson, with strength bands and plain-language interpretation)
+- Viewer segmentation with retention rates per segment
+- Funnel progression: started → 25% → 50% → 75% → finished → retained
 
-The team will compare suitable approaches and select an appropriate model based on performance and interpretability.
+Predictive ML modelling (logistic regression, decision trees) remains future scope; the current product is descriptive/decision-support. Correlations are associations, never causal claims.
 
 ### **Expected Output**
 
@@ -239,14 +223,14 @@ A model/analysis that can estimate retention risk or probability based on viewer
 
 Analyze content using engagement and retention metrics.
 
-For each content/series/episode, calculate:
+For each content title, calculate (from aggregated sessions):
 
+- Distinct viewer count
 - Average watch duration
-- Completion rate
-- Pause rate
-- Viewer engagement
-- Retention contribution
-- Viewer segment distribution
+- Average completion rate
+- Average pause count
+- Average sessions per week
+- 30-day retention rate (user-level outcome; undefined outcomes excluded)
 
 ### **Expected Output**
 
@@ -258,11 +242,14 @@ Identification of content that demonstrates strong engagement and retention pote
 
 Convert analytical findings into actionable recommendations.
 
-Example:
+Implemented rule-based categories (`analysis/recommendations.py`):
 
-Content A has a high episode completion rate, high average watch duration, and strong retention among engaged viewers. The content can therefore receive a higher acquisition priority.
+- HIGH PRIORITY: avg completion >= 75% AND 30-day retention >= 70%
+- INVESTIGATE: avg completion >= 75% AND retention < 70%
+- LOW PRIORITY: completion < 75% AND retention < 50%
+- STANDARD: everything else
 
-The recommendation system should consider multiple engagement and retention indicators rather than relying on a single metric.
+The recommendation system considers multiple engagement and retention indicators rather than relying on a single metric; every card exposes its supporting metrics and reasoning. Recommendations are decision-support only — final decisions stay with human stakeholders.
 
 ### **Expected Output**
 
@@ -272,42 +259,47 @@ A ranked list or recommendation score for content acquisition.
 
 ## **Module 8 — Dashboard**
 
-Create an interactive dashboard for acquisition teams.
+Create an interactive dashboard for acquisition teams. Built as `src/app/app.py` (Streamlit) with a synthetic-data disclosure banner and a problem-statement navigator.
 
-### **Dashboard Sections**
+### **Dashboard Sections** (as built — 8 tabs)
 
-#### **Overview**
+#### **Executive Cockpit (Overview)**
 
-- Total viewers
-- Retention rate
-- Average watch duration
-- Average completion rate
-- Average pause frequency
+- Total viewers, 30-day retention, avg completion, avg watch duration, avg pause count, finished rate
+- Operational SLA alerts
+- Benchmark gauges with targets
 
-#### **Engagement Analysis**
+#### **Engagement Drivers**
 
-- Watch duration vs retention
-- Completion rate vs retention
-- Pause frequency vs retention
+- Completion vs retention, pause vs retention (cohort comparisons)
+- Correlation matrix heatmap + plain-language takeaways
 
 #### **Viewer Segments**
 
-- Segment distribution
-- Retention by segment
-- Engagement characteristics
+- 3-segment view (default) / 4-segment PRD view (toggle)
+- Segment distribution, retention by segment, engagement characteristics
 
-#### **Content Analysis**
+#### **Funnel Analysis**
 
-- Top-performing content
-- Low-performing content
-- Content engagement metrics
+- Started → 25% → 50% → 75% → Finished → Retained (per-user furthest stage)
+- Biggest drop-off / bottleneck narrative
 
-#### **Acquisition Recommendations**
+#### **Content Portfolio (Acquisition Recommendations)**
 
-- Recommended content
-- Acquisition score
-- Supporting engagement metrics
-- Reason for recommendation
+- HIGH PRIORITY / INVESTIGATE / STANDARD / LOW PRIORITY cards
+- Supporting engagement + retention evidence per title
+
+#### **What-If Model**
+
+- Sensitivity simulator (completion lift, pause reduction → retention/ARR impact)
+
+#### **SQL Parity**
+
+- Python-vs-SQLite consistency audit workbench
+
+#### **Data Quality & Assumptions**
+
+- Synthetic-data provenance, analytical definitions, limitations, reproducibility
 
 ---
 
@@ -375,40 +367,35 @@ Create an interactive dashboard for acquisition teams.
 
 ---
 
-## **Week 4 — Backend Development**
+## **Week 4 — Backend Development** *(revised)*
 
-- Design backend architecture
-- Create database schema
-- Implement APIs
-- Store viewer/content data
-- Implement analytics endpoints
-- Implement recommendation endpoints
-- Test APIs
+The original FastAPI/REST plan was dropped with the 2026-09-02 Streamlit decision. Actual backend work:
+
+- One-command pipeline orchestrator (`scripts/run_pipeline.py`, PR #20)
+- SQLite schema (`sql/schema.sql`) + business queries (`sql/business_queries.sql`)
+- SQL KPI layer (`scripts/build_db.py`, `sql/kpi_views.sql`) — **planned, not started**
 
 ### **Deliverables**
 
-- Backend service
-- Database
-- REST APIs
-- API documentation
+- Reproducible pipeline (normalize → generate, verified outputs)
+- Relational store + queries (user-grain parity with pandas)
 
 ---
 
 ## **Week 5 — Frontend & Dashboard**
 
 - Design dashboard UI
-- Implement dashboard layout
-- Connect frontend with backend
+- Implement dashboard layout (Streamlit, PR #21)
+- Load data from the generated dataset (CSV; SQL views planned)
 - Add charts and visualizations
 - Add viewer segmentation views
 - Add content analysis
 - Add acquisition recommendations
-- Implement responsive design
+- Add synthetic-data disclosure and assumptions page
 
 ### **Deliverables**
 
-- Functional dashboard
-- Integrated frontend + backend
+- Functional dashboard (Executive Cockpit, Engagement, Segments, Funnel, Content, What-If, SQL Parity, Data Quality tabs)
 - Interactive analytics
 
 ---
@@ -416,11 +403,10 @@ Create an interactive dashboard for acquisition teams.
 ## **Week 6 — Integration, Testing & Refinement**
 
 - Integrate all modules
-- Test frontend
-- Test backend APIs
-- Validate analytical results
+- Test the dashboard (64 pytest tests green; user-grain SQL parity verified)
+- Validate analytical results (eligible-user retention denominators, per-user funnel)
 - Test recommendation logic
-- Fix bugs
+- Fix bugs (grain fixes merged in PRs #23/#24)
 - Improve UI/UX
 - Optimize performance
 - Perform end-to-end testing
@@ -460,18 +446,21 @@ Create an interactive dashboard for acquisition teams.
 
 ## **Branching Strategy**
 
-The `main` branch will contain stable and reviewed code.
+The `main` branch contains stable and reviewed code (protected; Team Lead merges approved PRs only).
 
-Each member will work using a separate branch.
+Each member works on a separate branch named `type/description`:
 
 ```
 main
- ├── feature/data-analysis
- ├── feature/backend
- ├── feature/frontend
- ├── feature/ml
- └── feature/dashboard
+  ├── feature/repo-scaffold          (merged — PR #16)
+  ├── feature/data-pipeline          (merged — PR #17)
+  ├── feature/pipeline-orchestrator  (merged — PR #20)
+  ├── feature/streamlens-analytics-platform (merged — PR #21)
+  ├── fix/retention-eligibility-logic      (merged — PR #18)
+  └── fix/dashboard-data-alignment         (merged — PRs #23/#24)
 ```
+
+Full branch/commit/PR rules: see the team workflow doc (in the workspace context folder, gitignored).
 
 ## **Pull Request Process**
 

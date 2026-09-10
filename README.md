@@ -6,7 +6,7 @@ Data product analysing the relationship between streaming viewer engagement and 
 
 ## Status
 
-Migrating from the initial FastAPI prototype to the final Streamlit + SQLite architecture (see PLAN.md). This scaffold commit sets up the target structure.
+Migration from the FastAPI prototype complete. Current state: reproducible pipeline (normalize → generate), StreamLens Streamlit dashboard (user-grain retention analytics, SQL parity, synthetic disclosure), 64 passing tests. Remaining roadmap: SQL KPI layer (`build_db.py` + `kpi_views.sql`), CI pipeline, PLAN.md/PRD.md alignment (done 2026-09-09).
 
 ## Setup
 
