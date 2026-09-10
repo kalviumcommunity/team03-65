@@ -199,6 +199,8 @@ The system must:
 
 ### Current Dataset Fields
 
+The upload path accepts viewer-activity CSVs with (aliases supported):
+
 - User ID
 - Content ID
 - Watch duration
@@ -206,6 +208,8 @@ The system must:
 - Pause count
 - Sessions per week
 - Retention status
+
+The default (no-upload) path loads the synthetic hybrid-grain dataset (`viewer_sessions.csv` + `viewer_retention.csv`), derives `sessions_per_week` from session records, and attaches the latest **eligible** 30-day retention outcome per user.
 
 ---
 
@@ -289,80 +293,72 @@ Contains:
 - **FR8 — Acquisition Insights:** Assign Prioritize, Investigate, or Monitor using multiple indicators.
 - **FR9 — Evidence:** Display the metrics and explanation supporting each acquisition insight.
 - **FR10 — Dashboard:** Present results through KPIs, charts, tables, segment cards, and recommendation cards.
-- **FR11 — API Access:** Make analytical results available through REST APIs.
+- **FR11 — Analytical Access:** Make analytical results available through the Streamlit dashboard, importable `analysis/` functions, and verified SQLite business queries (REST APIs dropped with the 2026-09-02 Streamlit decision).
 - **FR12 — Reproducibility:** Produce consistent results for the same dataset and documented processing logic.
 
 ---
 
-## 13. API Requirements
+## 13. API & Interface Requirements
 
-Expected REST endpoints:
+> **Revised 2026-09-02:** the REST API plan was dropped with the Streamlit decision. The analytical layer is exposed through:
 
-- `GET /api/health`
-- `GET /api/data/summary`
-- `GET /api/analytics/engagement`
-- `GET /api/analytics/retention`
-- `GET /api/analytics/segments`
-- `GET /api/analytics/content-performance`
-- `GET /api/analytics/recommendations`
+- **Streamlit dashboard** (`src/app/app.py`) — the primary interface
+- **Python modules** (`analysis/`) — importable compute functions used by the dashboard
+- **SQLite business queries** (`sql/business_queries.sql`, executed via `analysis/sql_analytics.py`) with Python-vs-SQL parity verification
+- **One-command pipeline** (`scripts/run_pipeline.py`) reproducing all outputs
 
-The APIs will return structured JSON responses suitable for dashboard consumption.
+A REST layer (`/api/health`, `/api/analytics/*`) remains possible future scope.
 
 ---
 
 ## 14. Data Requirements
 
-The current dataset contains:
+> **Revised 2026-09-02 — hybrid grain data model:**
 
-- User ID
-- Content ID
-- Watch duration
-- Completion rate
-- Pause count
-- Sessions per week
-- Retention status
+- **`content_catalog`** (real): one row per TMDB movie — content_id, title, release_date, runtime, vote_average, vote_count, popularity, genres, original_language, overview
+- **`viewer_sessions`** (synthetic, seeded): user_id, session_id, content_id, started_at, watch_duration_minutes, pause_count, completion_pct, finished
+- **`viewer_retention`** (synthetic, seeded): user_id, observation_date, eligible_for_30d_retention, retained_30d
+- **Derived content-level aggregates**: computed from sessions (distinct viewer counts, averages, retention rates) — never hand-typed per movie
 
-The analysis must only calculate metrics supported by the available data.
+The analysis only calculates metrics supported by the available data. All viewer behaviour data is synthetic and disclosed as such.
 
 ---
 
 ## 15. Technical Requirements
 
-### Current Prototype
+> **Revised 2026-09-02; supersedes the original React/Node/Mongo plan.**
 
-- Python
-- Pandas
-- FastAPI
-- CSV
+### Application
+
+- Python 3.10+
+- Streamlit (dashboard)
+- Plotly (visualizations)
+- SQLite (relational store; KPI views planned)
 
 ### Data Analysis
 
 - NumPy
 - Pandas
-- Matplotlib / Seaborn where required
-- scikit-learn where required for analytical segmentation
+- Plotly
+- Seeded deterministic behaviour generator (seed 42)
 
-### Dashboard
+### Pipeline
 
-- React
-- Vite
-- Tailwind CSS
-- Recharts or Chart.js
-- Axios
-
-### Backend & Storage — Planned
-
-- Node.js
-- Express.js
-- MongoDB
+- `scripts/run_pipeline.py` — one-command orchestration (normalize → generate; build_db planned)
+- Deterministic, reproducible outputs (metadata + checksums in `output/reports/`)
 
 ### Collaboration
 
 - GitHub
-- Branches
+- Branches (`type/description`)
 - Pull Requests
 - Code Reviews
 - GitHub Issues / Projects
+
+### Planned future work
+
+- SQL KPI layer (`scripts/build_db.py`, `sql/kpi_views.sql`)
+- CI pipeline (GitHub Actions)
 
 ---
 
@@ -386,15 +382,16 @@ The analysis must only calculate metrics supported by the available data.
 The product will be considered successful when:
 
 - The upload flow clearly communicates file validity and data readiness.
-- The Overview displays the four KPI cards defined in the mock UI.
+- The Overview displays the core KPI cards (retention, completion, watch duration, pauses, finished rate).
 - Engagement and retention can be compared using the defined metrics.
-- Every valid viewer is assigned to one of the four dashboard viewer segments.
+- Every valid viewer is assigned to a segment (3-segment default; 4-segment PRD mode toggle).
 - Each segment displays meaningful engagement and retention information.
-- Content can be compared using viewer count, watch duration, completion, pauses, sessions per week, and retention.
-- Each analyzed content item can receive a Prioritize, Investigate, or Monitor category.
+- Content can be compared using distinct viewer count, watch duration, completion, pauses, sessions per week, and retention.
+- Each analyzed content item receives a HIGH PRIORITY / INVESTIGATE / STANDARD / LOW PRIORITY category.
 - Each recommendation exposes supporting evidence and reasoning.
-- The dashboard follows the five-section information architecture represented in the mock UI.
-- The analytical pipeline remains reproducible and documented.
+- The dashboard follows the eight-tab information architecture of the built Streamlit app.
+- The analytical pipeline remains reproducible and documented (seeded, verified outputs).
+- Synthetic-data provenance is disclosed (banner + Data Quality & Assumptions tab).
 
 ---
 

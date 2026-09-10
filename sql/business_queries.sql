@@ -1,12 +1,18 @@
--- Day 15: SQL Business Queries
+-- Day 15: SQL Business Queries (user-level grain)
 -- Uses viewing_records (or joined viewer_sessions + viewer_retention)
+--
+-- Grain note (2026-09-09, PRs #23/#24): retention is a user-level outcome.
+-- All queries below aggregate to one row per user before classifying or
+-- counting, mirroring the authoritative implementations in
+-- analysis/sql_analytics.py (with which Python/SQL parity is verified).
 
 -- ============================================================================
 -- QUERY 1: Content with Highest Retention
--- Aggregates viewer count, average completion, watch duration, pauses, and retention rate per title
+-- Aggregates distinct viewer count, average completion, watch duration,
+-- pauses, and retention rate per title
 -- ============================================================================
 -- name: content_highest_retention
-SELECT 
+SELECT
     content_id,
     COUNT(DISTINCT user_id) AS viewer_count,
     ROUND(AVG(completion_rate), 2) AS avg_completion_rate,
@@ -21,31 +27,32 @@ ORDER BY retention_rate DESC, viewer_count DESC;
 -- ============================================================================
 -- QUERY 2: Segment Summaries
 -- Categorizes viewers by engagement thresholds and calculates segment performance
--- Thresholds:
--- Highly Engaged: completion_rate >= 80 AND sessions_per_week >= 5
--- At Risk / Low Engagement: completion_rate < 50 OR sessions_per_week <= 2
+-- Thresholds (per user, engagement metrics averaged across their sessions):
+-- Highly Engaged: avg completion >= 80 AND sessions_per_week >= 5
+-- At Risk / Low Engagement: avg completion < 50 OR sessions_per_week <= 2
 -- Moderately Engaged: remaining
 -- ============================================================================
 -- name: segment_summaries
 WITH classified_viewers AS (
     SELECT
         user_id,
-        completion_rate,
-        watch_duration,
-        pause_count,
-        sessions_per_week,
-        retained,
+        AVG(completion_rate) AS completion_rate,
+        AVG(watch_duration) AS watch_duration,
+        AVG(pause_count) AS pause_count,
+        MIN(sessions_per_week) AS sessions_per_week,
+        MAX(retained) AS retained,
         CASE
-            WHEN completion_rate >= 80.0 AND sessions_per_week >= 5 THEN 'Highly Engaged'
-            WHEN completion_rate < 50.0 OR sessions_per_week <= 2 THEN 'At Risk / Low Engagement'
+            WHEN AVG(completion_rate) >= 80.0 AND MIN(sessions_per_week) >= 5 THEN 'Highly Engaged'
+            WHEN AVG(completion_rate) < 50.0 OR MIN(sessions_per_week) <= 2 THEN 'At Risk / Low Engagement'
             ELSE 'Moderately Engaged'
         END AS segment
     FROM viewing_records
+    GROUP BY user_id
 ),
 total_count AS (
     SELECT COUNT(*) AS total FROM classified_viewers
 )
-SELECT 
+SELECT
     c.segment,
     COUNT(*) AS viewer_count,
     ROUND((CAST(COUNT(*) AS REAL) / (SELECT total FROM total_count)) * 100.0, 2) AS viewer_pct,
@@ -56,7 +63,7 @@ SELECT
     ROUND(AVG(CAST(c.retained AS REAL)), 4) AS retention_rate
 FROM classified_viewers c
 GROUP BY c.segment
-ORDER BY 
+ORDER BY
     CASE c.segment
         WHEN 'Highly Engaged' THEN 1
         WHEN 'Moderately Engaged' THEN 2
@@ -66,9 +73,20 @@ ORDER BY
 -- ============================================================================
 -- QUERY 3: Funnel Steps Analysis
 -- Progression through the 6 viewing stages: Started -> 25% -> 50% -> 75% -> Finished -> Retained
+-- A user's furthest completion (MAX) defines the stage they reached;
+-- Retained = distinct users with a retained outcome.
 -- ============================================================================
 -- name: funnel_steps
-WITH stage_counts AS (
+WITH per_user AS (
+    SELECT
+        user_id,
+        MAX(completion_rate) AS completion_rate,
+        MAX(CASE WHEN finished = 1 THEN 1 ELSE 0 END) AS finished,
+        MAX(retained) AS retained
+    FROM viewing_records
+    GROUP BY user_id
+),
+stage_counts AS (
     SELECT
         COUNT(*) AS total_records,
         SUM(CASE WHEN completion_rate > 0 THEN 1 ELSE 0 END) AS started_count,
@@ -77,7 +95,7 @@ WITH stage_counts AS (
         SUM(CASE WHEN completion_rate >= 75.0 THEN 1 ELSE 0 END) AS watched_75_count,
         SUM(CASE WHEN completion_rate >= 90.0 OR finished = 1 THEN 1 ELSE 0 END) AS finished_count,
         SUM(CASE WHEN retained = 1 THEN 1 ELSE 0 END) AS retained_count
-    FROM viewing_records
+    FROM per_user
 )
 SELECT 'Started' AS stage, started_count AS count, 100.0 AS pct_of_initial FROM stage_counts
 UNION ALL
