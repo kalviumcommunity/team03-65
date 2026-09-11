@@ -63,9 +63,13 @@ import pandas as pd
 # --- configuration constants -------------------------------------------------
 
 SEED = 42
-FORMULA_VERSION = "2.1.0-retention-eligibility-fix"
+FORMULA_VERSION = "2.2.0-scaled-dataset"
 
-NUM_USERS = 5000
+# Scale reduced 2026-09-11: catalog trimmed to ~5k titles and users to 500
+# (10x down from 50k/5,000) because the dashboard recomputes analytics from
+# session grain on every tab switch; 83k sessions made tab switching laggy.
+# Override with --num-users if a larger run is needed.
+DEFAULT_NUM_USERS = 500
 OBSERVATION_MONTHS = 6
 OBSERVATION_START = "2026-03-01"
 # Sessions are generated from this month; the month(s) before the first
@@ -142,24 +146,29 @@ def compute_content_priors(catalog: pd.DataFrame) -> pd.DataFrame:
 
 # --- generation ----------------------------------------------------------------
 
-def generate_users(rng: np.random.Generator) -> pd.DataFrame:
+def generate_users(
+    rng: np.random.Generator, num_users: int | None = None
+) -> pd.DataFrame:
     """Generate per-user engagement propensities.
 
     Args:
         rng: Seeded numpy Generator.
+        num_users: Number of users to generate (defaults to
+            DEFAULT_NUM_USERS).
 
     Returns:
         Dataframe with user_id and propensity columns.
     """
-    user_ids = [f"U{idx:05d}" for idx in range(1, NUM_USERS + 1)]
+    n = num_users if num_users is not None else DEFAULT_NUM_USERS
+    user_ids = [f"U{idx:05d}" for idx in range(1, n + 1)]
     users = pd.DataFrame({"user_id": user_ids})
 
     users["engagement_propensity"] = rng.beta(
-        a=2.0, b=2.5, size=NUM_USERS
+        a=2.0, b=2.5, size=n
     ).clip(0.02, 1.0)
-    users["taste_noise"] = rng.normal(0.0, NOISE_SCALE, NUM_USERS)
+    users["taste_noise"] = rng.normal(0.0, NOISE_SCALE, n)
 
-    log.info("Generated %d users", NUM_USERS)
+    log.info("Generated %d users", n)
     return users
 
 
@@ -430,6 +439,7 @@ def write_outputs(
     generated_dir: Path,
     reports_dir: Path,
     seed: int,
+    num_users: int | None = None,
 ) -> None:
     """Write generated tables and the generation metadata JSON.
 
@@ -439,8 +449,10 @@ def write_outputs(
         checks: Validation check dict for the metadata record.
         catalog_path: Path of the input catalog (recorded in metadata).
         generated_dir: Destination directory for the generated CSVs.
-        reports_dir: Destination directory for the metadata JSON.
+        reports_dir: Directory for the metadata JSON.
         seed: Seed used for the generation run.
+        num_users: User count for this run (defaults to the number of
+            distinct users found in the retention table).
     """
     generated_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -450,6 +462,9 @@ def write_outputs(
 
     sessions.to_csv(sessions_path, index=False)
     retention.to_csv(retention_path, index=False)
+
+    if num_users is None:
+        num_users = int(retention["user_id"].nunique())
 
     metadata = {
         "seed": seed,
@@ -461,7 +476,7 @@ def write_outputs(
             "viewer_retention": len(retention),
         },
         "parameters": {
-            "num_users": NUM_USERS,
+            "num_users": num_users,
             "observation_months": OBSERVATION_MONTHS,
             "observation_start": OBSERVATION_START,
             "sessions_start": SESSIONS_START,
@@ -539,6 +554,10 @@ def main(argv: list[str] | None = None) -> int:
         "--seed", type=int, default=SEED,
         help=f"Random seed (default: {SEED})",
     )
+    parser.add_argument(
+        "--num-users", type=int, default=DEFAULT_NUM_USERS,
+        help=f"Number of synthetic users (default: {DEFAULT_NUM_USERS})",
+    )
     args = parser.parse_args(argv)
 
     catalog_path = Path(args.catalog)
@@ -557,8 +576,11 @@ def main(argv: list[str] | None = None) -> int:
         priors = compute_content_priors(catalog)
 
         rng = np.random.default_rng(args.seed)
-        log.info("Stage 2/4: generating users and sessions (seed=%d)", args.seed)
-        users = generate_users(rng)
+        log.info(
+            "Stage 2/4: generating %d users and sessions (seed=%d)",
+            args.num_users, args.seed,
+        )
+        users = generate_users(rng, num_users=args.num_users)
         sessions = generate_sessions(priors, users, rng)
 
         log.info("Stage 3/4: deriving retention from session records")
@@ -570,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         write_outputs(
             sessions, retention, checks,
             catalog_path, generated_dir, reports_dir, args.seed,
+            num_users=args.num_users,
         )
         log.info("Generation finished successfully.")
         return 0

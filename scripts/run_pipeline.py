@@ -195,6 +195,8 @@ def run_stage(stage: str, args: argparse.Namespace) -> None:
             args.generated_dir,
             "--seed",
             str(args.seed),
+            "--num-users",
+            str(args.num_users),
         ]
     else:  # pragma: no cover - guarded by STAGES membership check
         raise RuntimeError(f"Unknown stage '{stage}'.")
@@ -307,6 +309,13 @@ def main(argv: list[str] | None = None) -> int:
         default=generate_behavior.SEED,
         help=f"Random seed for the behaviour generator "
         f"(default: {generate_behavior.SEED})",
+    )
+    parser.add_argument(
+        "--num-users",
+        type=int,
+        default=generate_behavior.DEFAULT_NUM_USERS,
+        help="Number of synthetic users to generate "
+        f"(default: {generate_behavior.DEFAULT_NUM_USERS})",
     )
     parser.add_argument(
         "--stages",

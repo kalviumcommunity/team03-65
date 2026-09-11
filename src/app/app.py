@@ -772,7 +772,7 @@ with tab_assumptions:
         """
 #### Data provenance
 
-- **Content catalog** — real TMDB movie metadata (~50k titles). Catalog fields
+- **Content catalog** — real TMDB movie metadata (~5k titles; trimmed from the ~50k source for dashboard responsiveness). Catalog fields
   (`vote_average`, `popularity`, `runtime`, `genres`) are priors for the
   simulation only; they are **not** observed causes of viewer behaviour.
 - **Viewer sessions & retention** — fully **synthetic**, produced by the seeded
