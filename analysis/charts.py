@@ -60,9 +60,12 @@ def plot_completion_vs_retention(df: pd.DataFrame) -> go.Figure:
         if sub.empty:
             continue
 
+        # Cap jitter points to 500 per cohort to keep payload lightweight and browser instant
+        plot_sub = sub.sample(500, random_state=42) if len(sub) > 500 else sub
+
         fig.add_trace(go.Box(
-            x=sub["retained_label"],
-            y=sub["completion_rate"],
+            x=plot_sub["retained_label"],
+            y=plot_sub["completion_rate"],
             name=cohort,
             marker_color=colors.get(cohort, "#3b82f6"),
             boxpoints="all",
@@ -70,7 +73,7 @@ def plot_completion_vs_retention(df: pd.DataFrame) -> go.Figure:
             pointpos=-1.8,
             marker=dict(size=6, opacity=0.7),
             line=dict(width=1.8),
-            customdata=np.stack((sub["tooltip_id"], sub["tooltip_dur"]), axis=-1),
+            customdata=np.stack((plot_sub["tooltip_id"], plot_sub["tooltip_dur"]), axis=-1),
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "Cohort: <b>%{x}</b><br>"
@@ -124,9 +127,12 @@ def plot_pause_vs_retention(df: pd.DataFrame) -> go.Figure:
         if sub.empty:
             continue
 
+        # Cap jitter points to 500 per cohort to keep payload lightweight and browser instant
+        plot_sub = sub.sample(500, random_state=42) if len(sub) > 500 else sub
+
         fig.add_trace(go.Box(
-            x=sub["retained_label"],
-            y=sub["pause_count"],
+            x=plot_sub["retained_label"],
+            y=plot_sub["pause_count"],
             name=cohort,
             marker_color=colors.get(cohort, "#6366f1"),
             boxpoints="all",
@@ -134,7 +140,7 @@ def plot_pause_vs_retention(df: pd.DataFrame) -> go.Figure:
             pointpos=-1.8,
             marker=dict(size=6, opacity=0.7),
             line=dict(width=1.8),
-            customdata=sub["tooltip_id"],
+            customdata=plot_sub["tooltip_id"],
             hovertemplate=(
                 "<b>%{customdata}</b><br>"
                 "Cohort: <b>%{x}</b><br>"
