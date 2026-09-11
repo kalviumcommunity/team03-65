@@ -77,11 +77,21 @@ def assign_segments(df: pd.DataFrame, use_4_segments: bool = False) -> pd.DataFr
     if "sessions_per_week" not in norm_df.columns:
         norm_df["sessions_per_week"] = 1.0
 
-    classifier = classify_viewer_4_segments if use_4_segments else classify_viewer_3_segments
-    norm_df["segment"] = norm_df.apply(
-        lambda r: classifier(r["completion_rate"], r["sessions_per_week"]),
-        axis=1
-    )
+    if use_4_segments:
+        conds = [
+            (norm_df["completion_rate"] >= 80.0) & (norm_df["sessions_per_week"] >= 5.0),
+            (norm_df["completion_rate"] >= 65.0) & (norm_df["sessions_per_week"] >= 3.0),
+            (norm_df["completion_rate"] >= 50.0) & (norm_df["sessions_per_week"] > 2.0)
+        ]
+        choices = ["Highly Engaged", "Steady Viewers", "Casual Viewers"]
+        norm_df["segment"] = np.select(conds, choices, default="Low / At-Risk")
+    else:
+        conds = [
+            (norm_df["completion_rate"] >= 80.0) & (norm_df["sessions_per_week"] >= 5.0),
+            (norm_df["completion_rate"] < 50.0) | (norm_df["sessions_per_week"] <= 2.0)
+        ]
+        choices = ["Highly Engaged", "At Risk / Low Engagement"]
+        norm_df["segment"] = np.select(conds, choices, default="Moderately Engaged")
     return norm_df
 
 def calculate_segment_comparison(df: pd.DataFrame, use_4_segments: bool = False) -> pd.DataFrame:

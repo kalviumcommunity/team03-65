@@ -77,19 +77,11 @@ def to_user_level(df: pd.DataFrame) -> pd.DataFrame:
         agg_map["retained"] = ("retained", "max")
     if "finished" in df.columns:
         agg_map["finished"] = ("finished", "max")
-    if not agg_map:
-        return df.drop_duplicates(subset=["user_id"]).copy()
+    if "content_id" in df.columns:
+        agg_map["content_id"] = ("content_id", "first")
+        agg_map["distinct_titles"] = ("content_id", "nunique")
 
     user_df = df.groupby("user_id", as_index=False).agg(**agg_map)
-    if "content_id" in df.columns:
-        # representative content affiliation (first) + distinct title count
-        user_df = user_df.merge(
-            df.groupby("user_id", as_index=False)
-              .agg(representative_content_id=("content_id", "first"),
-                   distinct_titles=("content_id", "nunique")),
-            on="user_id", how="left"
-        )
-        user_df = user_df.rename(columns={"representative_content_id": "content_id"})
     return user_df
 
 def classify_correlation(r: float) -> tuple[str, str]:
