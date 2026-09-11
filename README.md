@@ -29,6 +29,7 @@ Useful flags:
 | Flag | Effect |
 |---|---|
 | `--seed N` | Seed for the behaviour generator (default 42, recorded in `output/reports/generation_metadata.json`) |
+| `--num-users N` | Number of synthetic users (default 500) |
 | `--stages normalize,generate` | Run a subset (`all` by default, canonical order enforced) |
 | `--skip-generation` | Reuse existing generated data; normalize only |
 | `--processed-dir` / `--generated-dir` | Override output directories |
@@ -65,9 +66,9 @@ notebooks/         exploration only
 
 | Table | Grain | Nature |
 |---|---|---|
-| `content_catalog` | one row per movie (~50k) | real (TMDB-derived catalog) |
-| `viewer_sessions` | one row per user × content session | synthetic (seeded generator) |
-| `viewer_retention` | one row per user × observation month | synthetic (seeded generator) |
+| `content_catalog` | one row per movie (~5k; trimmed from the ~50k TMDB catalog for dashboard responsiveness) | real (TMDB-derived catalog) |
+| `viewer_sessions` | one row per user × content session (~8.5k rows, 500 users) | synthetic (seeded generator) |
+| `viewer_retention` | one row per user × observation month (3,000 rows) | synthetic (seeded generator) |
 
 Viewer behaviour metrics are aggregated from synthetic session records; they are never copied from movie ratings or popularity.
 

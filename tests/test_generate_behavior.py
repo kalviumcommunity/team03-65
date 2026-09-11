@@ -1,6 +1,6 @@
 """Tests for scripts/generate_behavior.py (LU 2.24/2.25/2.26 coverage).
 
-Reproducibility of the full 5,000-user dataset (same seed -> identical
+Reproducibility of the full generated dataset (same seed -> identical
 checksums) is asserted against the real generated files when they exist;
 the synthetic-distribution tests run on a small generated sample for speed.
 """
@@ -148,7 +148,7 @@ class TestDomainRules:
 
 class TestFullDatasetReproducibility:
     def test_full_run_checksums_match_metadata(self):
-        """Only runs when the full 5,000-user dataset was generated."""
+        """Only runs when the full generated dataset is present."""
         if not (SESSIONS.exists() and METADATA.exists()):
             pytest.skip("full generated dataset not present")
         meta = json.loads(METADATA.read_text(encoding="utf-8"))
