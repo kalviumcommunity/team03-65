@@ -21,6 +21,7 @@ env/
 # (contents ignored; .gitkeep placeholders keep the folder structure in git)
 data/raw/*
 !data/raw/.gitkeep
+!data/raw/tmdb_catalog.csv
 data/generated/*
 !data/generated/.gitkeep
 data/processed/*
