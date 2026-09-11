@@ -155,7 +155,12 @@ def load_default_dataset() -> pd.DataFrame:
     outcome per user (user-level grain, per disst/AGENTS.md sections 8/11)."""
     sessions_path = REPO_ROOT / "data" / "generated" / "viewer_sessions.csv"
     if not sessions_path.exists() or sessions_path.stat().st_size == 0:
-        return pd.DataFrame()
+        raw_catalog = REPO_ROOT / "data" / "raw" / "tmdb_catalog.csv"
+        if raw_catalog.exists() and raw_catalog.stat().st_size > 0:
+            import run_pipeline
+            run_pipeline.main(["--input", str(raw_catalog)])
+        if not sessions_path.exists() or sessions_path.stat().st_size == 0:
+            return pd.DataFrame()
 
     df = pd.read_csv(sessions_path)
 
