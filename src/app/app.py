@@ -148,6 +148,10 @@ def _user_level_retention(df: pd.DataFrame) -> float:
     ret = pd.to_numeric(user_ret["retained"], errors="coerce").dropna()
     return float(ret.mean()) if len(ret) > 0 else 0.0
 
+@st.cache_data(show_spinner=False)
+def _cached_segment_comparison(df: pd.DataFrame, use_4_segments: bool = False) -> pd.DataFrame:
+    return calculate_segment_comparison(df, use_4_segments=use_4_segments)
+
 @st.cache_data
 def load_default_dataset() -> pd.DataFrame:
     """Load the synthetic session dataset, derive engagement metrics from
@@ -415,7 +419,7 @@ render_problem_statement_navigator(filtered_df)
 with tab_overview:
     # 1. Operational Alerts
     kpis_data = calculate_kpis(filtered_df)
-    segment_summary = calculate_segment_comparison(filtered_df)
+    segment_summary = _cached_segment_comparison(filtered_df)
     alerts_data = evaluate_kpi_alerts(kpis=kpis_data, segment_summary=segment_summary)
     render_alert_banners(alerts_data)
 
@@ -540,7 +544,7 @@ with tab_segments:
     with top_seg_col2:
         use_4_seg = st.toggle("4-Segment Granularity (PRD Section 6)", value=False)
 
-    seg_df = calculate_segment_comparison(filtered_df, use_4_segments=use_4_seg)
+    seg_df = _cached_segment_comparison(filtered_df, use_4_segments=use_4_seg)
 
     st.markdown("#### Comparative Cohort Performance Matrix")
     formatted_seg = seg_df.copy()
@@ -714,7 +718,34 @@ with tab_acquisition:
 
         display_recs = [r for r in recs if filter_cat == "All Categories" or r["recommendation"] == filter_cat]
 
-        for item in display_recs:
+        # Content Performance Summary Matrix (Day 19 specification)
+        st.markdown("#### Catalog Performance Matrix")
+        summary_df = export_df[["content_id", "recommendation", "viewer_count", "avg_completion_rate", "avg_watch_duration", "avg_pause_count", "retention_rate"]].copy()
+        summary_df.columns = ["Title / ID", "Priority", "Audience", "Completion %", "Watch Time (m)", "Pauses", "30D Retention"]
+        if filter_cat != "All Categories":
+            summary_df = summary_df[summary_df["Priority"] == filter_cat]
+        st.dataframe(summary_df, width="stretch", hide_index=True)
+
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+        
+        # Paginated Recommendation Cards (prevents DOM freeze from rendering 500+ containers)
+        page_size = 10
+        total_items = len(display_recs)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+
+        card_hdr_col, card_page_col = st.columns([3, 1])
+        with card_hdr_col:
+            st.markdown(f"#### Acquisition Telemetry Cards ({total_items} titles)")
+        with card_page_col:
+            if total_pages > 1:
+                current_page = st.selectbox("Page", range(1, total_pages + 1), index=0, key="recs_page_selector")
+            else:
+                current_page = 1
+
+        start_idx = (current_page - 1) * page_size
+        page_items = display_recs[start_idx:start_idx + page_size]
+
+        for item in page_items:
             badge_fg = "#15803d" if item['recommendation'] == 'HIGH PRIORITY' else "#92400e" if item['recommendation'] == 'INVESTIGATE' else "#991b1b" if item['recommendation'] == 'LOW PRIORITY' else "#18181b"
             badge_bg = "#f0fdf4" if item['recommendation'] == 'HIGH PRIORITY' else "#fffbeb" if item['recommendation'] == 'INVESTIGATE' else "#fef2f2" if item['recommendation'] == 'LOW PRIORITY' else "#f4f4f5"
 

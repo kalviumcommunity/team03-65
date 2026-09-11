@@ -21,6 +21,21 @@ from analysis.sql_analytics import (
 )
 from src.app.components.html_utils import clean_html
 
+from typing import Dict, Any, Tuple
+
+@st.cache_data(show_spinner=False)
+def _get_cached_parity_report(df: pd.DataFrame) -> Dict[str, Any]:
+    return verify_python_sql_consistency(df)
+
+@st.cache_data(show_spinner=False)
+def _get_cached_sql_results(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    conn = get_db_connection()
+    load_data_to_sqlite(df, conn)
+    res1 = query_content_highest_retention(conn)
+    res2 = query_segment_summaries(conn)
+    res3 = query_funnel_steps(conn)
+    return res1, res2, res3
+
 def render_sql_audit_workbench(df: pd.DataFrame) -> None:
     """Render the senior relational SQL analytics workbench."""
     st.markdown("### Relational SQL Engine & Mathematical Parity Audit")
@@ -30,9 +45,8 @@ def render_sql_audit_workbench(df: pd.DataFrame) -> None:
         st.info("No viewer data available to execute SQL queries.")
         return
 
-    # Run consistency check
-    with st.spinner("Executing mathematical parity verification..."):
-        parity_report = verify_python_sql_consistency(df)
+    # Run consistency check (cached for instant performance)
+    parity_report = _get_cached_parity_report(df)
 
     is_consistent = parity_report.get("consistent", False)
 
@@ -56,9 +70,8 @@ def render_sql_audit_workbench(df: pd.DataFrame) -> None:
         st.warning("⚠️ Parity discrepancies observed between Python and SQL implementations.")
         st.json(parity_report)
 
-    # Connect to SQLite for live queries
-    conn = get_db_connection()
-    load_data_to_sqlite(df, conn)
+    # Fetch cached SQL query results
+    res_df_1, res_df_2, res_df_3 = _get_cached_sql_results(df)
 
     tab_q1, tab_q2, tab_q3 = st.tabs([
         "Query 1: Content Retention",
@@ -85,7 +98,6 @@ ORDER BY retention_rate DESC, viewer_count DESC;"""
         with st.expander("View SQL Definition", expanded=False):
             st.code(sql_code_1, language="sql")
 
-        res_df_1 = query_content_highest_retention(conn)
         st.dataframe(res_df_1, width="stretch", hide_index=True)
 
     with tab_q2:
@@ -126,7 +138,6 @@ GROUP BY c.segment;"""
         with st.expander("View SQL Definition", expanded=False):
             st.code(sql_code_2, language="sql")
 
-        res_df_2 = query_segment_summaries(conn)
         st.dataframe(res_df_2, width="stretch", hide_index=True)
 
     with tab_q3:
@@ -168,7 +179,4 @@ SELECT 'Retained', retained_count, ROUND((CAST(retained_count AS REAL) / started
         with st.expander("View SQL Definition", expanded=False):
             st.code(sql_code_3, language="sql")
 
-        res_df_3 = query_funnel_steps(conn)
         st.dataframe(res_df_3, width="stretch", hide_index=True)
-
-    conn.close()
