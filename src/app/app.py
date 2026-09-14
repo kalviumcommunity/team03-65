@@ -161,7 +161,13 @@ def load_default_dataset() -> pd.DataFrame:
     if not sessions_path.exists() or sessions_path.stat().st_size == 0:
         raw_catalog = REPO_ROOT / "data" / "raw" / "tmdb_catalog.csv"
         if raw_catalog.exists() and raw_catalog.stat().st_size > 0:
-            import run_pipeline
+            try:
+                import scripts.run_pipeline as run_pipeline
+            except ModuleNotFoundError:
+                scripts_dir = REPO_ROOT / "scripts"
+                if str(scripts_dir) not in sys.path:
+                    sys.path.insert(0, str(scripts_dir))
+                import run_pipeline
             run_pipeline.main(["--input", str(raw_catalog)])
         if not sessions_path.exists() or sessions_path.stat().st_size == 0:
             return pd.DataFrame()
