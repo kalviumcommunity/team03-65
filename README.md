@@ -1,3 +1,5 @@
+Link to open the App: https://streamlens-team.streamlit.app
+
 # Viewer Retention Insights
 
 Data product analysing the relationship between streaming viewer engagement and subscriber retention, built for content acquisition teams.
